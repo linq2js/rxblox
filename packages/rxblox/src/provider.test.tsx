@@ -906,6 +906,28 @@ describe("provider", () => {
     });
   });
 
+  describe("error handling for nested providers", () => {
+    it("should throw error when trying to access non-existent parent provider", () => {
+      const [useOuter] = provider("outer", 0);
+      const [useInner, InnerProvider] = provider("inner", 1);
+
+      const Child = blox(() => {
+        useInner(); // This works
+        // Try to access outer which doesn't exist in provider chain
+        // This should throw an error
+        expect(() => useOuter()).toThrow("Provider outer not found");
+        return <div>Test</div>;
+      });
+
+      // Render should succeed, but calling useOuter() inside the component throws
+      render(
+        <InnerProvider value={1}>
+          <Child />
+        </InnerProvider>
+      );
+    });
+  });
+
   // Note: Provider reactivity is documented in provider.tsx and types.ts
   // Key characteristic: Providers return signals, and only rx() or effect()
   // that consume the signal will be reactive. Child components themselves

@@ -315,12 +315,16 @@ export function blox<
       // - Track signals accessed during execution
       // - Subscribe to signal changes
       const cleanup = effectDispatcher.run();
+
+      // Emit mount event after effects are set up
+      eventDispatcher.emitMount();
+
       return () => {
         // Cancel any pending debounced rerender to prevent updates after unmount
         rerender.cancel();
         cleanup();
       };
-    }, [effectDispatcher, rerender]);
+    }, [effectDispatcher, rerender, eventDispatcher]);
 
     eventDispatcher.emitRender();
 

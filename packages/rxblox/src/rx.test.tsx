@@ -666,5 +666,66 @@ describe("rx", () => {
         expect(container.textContent).toBe("3"); // 1 + 2
       });
     });
+
+    it("should detect when new dependencies are added (b has items not in a)", async () => {
+      const signal1 = signal(1);
+      const signal2 = signal(2);
+      const signal3 = signal(3);
+      const condition = signal(false);
+
+      const Component = () => (
+        <div>
+          {rx(() => {
+            if (condition()) {
+              // When true: use signal3 only
+              return signal3();
+            } else {
+              // When false: use signal1 and signal2
+              return signal1() + signal2();
+            }
+          })}
+        </div>
+      );
+
+      const { container } = render(<Component />);
+      expect(container.textContent).toBe("3"); // 1 + 2
+
+      // Switch to signal3 - new dependency set has signal3, old has signal1/signal2
+      act(() => {
+        condition.set(true);
+      });
+
+      await waitFor(() => {
+        expect(container.textContent).toBe("3"); // signal3 = 3
+      });
+
+      // Change signal3 - should trigger update
+      act(() => {
+        signal3.set(10);
+      });
+
+      await waitFor(() => {
+        expect(container.textContent).toBe("10");
+      });
+
+      // Switch back - old set (signal3) vs new set (signal1, signal2)
+      // This tests lines 31-35 where b has items (signal1, signal2) not in a (signal3)
+      act(() => {
+        condition.set(false);
+      });
+
+      await waitFor(() => {
+        expect(container.textContent).toBe("3"); // 1 + 2
+      });
+
+      // Verify signal1/signal2 are tracked now
+      act(() => {
+        signal1.set(5);
+      });
+
+      await waitFor(() => {
+        expect(container.textContent).toBe("7"); // 5 + 2
+      });
+    });
   });
 });

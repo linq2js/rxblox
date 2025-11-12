@@ -465,6 +465,32 @@ describe("blox", () => {
     });
   });
 
+  describe("edge cases for proxy handlers", () => {
+    it("should handle Object.keys() when propsRef is null during initialization", () => {
+      let keys: string[] = [];
+      const Component = blox<{ a: number }>((props) => {
+        // Access keys immediately during first render to test null case
+        keys = Object.keys(props);
+        return <div>{keys.join(",")}</div>;
+      });
+      const { container } = render(<Component a={1} />);
+      expect(container.textContent).toBe("a");
+      expect(keys).toEqual(["a"]);
+    });
+
+    it("should handle getOwnPropertyDescriptor when propsRef is null during initialization", () => {
+      let descriptor: PropertyDescriptor | undefined;
+      const Component = blox<{ value: string }>((props) => {
+        // Access descriptor immediately to test null case
+        descriptor = Object.getOwnPropertyDescriptor(props, "value");
+        return <div>{descriptor?.value}</div>;
+      });
+      const { container } = render(<Component value="test" />);
+      expect(container.textContent).toBe("test");
+      expect(descriptor).toBeDefined();
+    });
+  });
+
   describe("effect cleanup", () => {
     it("should cleanup effects on unmount", () => {
       const cleanupFn = vi.fn();
