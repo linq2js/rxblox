@@ -777,7 +777,7 @@ const UserProfile = blox<{ userId: number }>((props) => {
 
 #### Cancellable Actions
 
-Use `action.cancellable()` for operations that can be aborted:
+Use `action.cancellable()` for operations that can be cancelled:
 
 ```tsx
 const searchUsers = action.cancellable(
@@ -791,10 +791,10 @@ const searchUsers = action.cancellable(
 searchUsers("john");
 
 // Cancel if user types more
-searchUsers.abort();
+searchUsers.cancel();
 
-// Check if aborted
-console.log(searchUsers.aborted); // true
+// Check if cancelled
+console.log(searchUsers.cancelled); // true
 
 // Next search gets a fresh AbortSignal
 searchUsers("jane");
@@ -842,13 +842,13 @@ const SearchResults = blox(() => {
   const search = action.cancellable(
     async (signal: AbortSignal, query: string) => {
       await new Promise((resolve) => setTimeout(resolve, 100));
-      if (signal.aborted) throw new Error("Aborted");
+      if (signal.aborted) throw new Error("Cancelled");
       return `Results for: ${query}`;
     }
   );
 
   const handleSearch = (query: string) => {
-    search(query); // Previous search is automatically aborted
+    search(query); // Previous search is automatically cancelled
   };
 
   return (
@@ -1947,7 +1947,7 @@ const deleteUser = action(
 
 ### `action.cancellable<TResult, TArgs>(fn, options?)`
 
-Creates a cancellable action with abort capabilities.
+Creates a cancellable action with cancellation capabilities.
 
 The function receives `AbortSignal` as its first parameter.
 
@@ -1962,10 +1962,10 @@ const fetchUser = action.cancellable(
 const promise = fetchUser(123);
 
 // Cancel the request
-fetchUser.abort();
+fetchUser.cancel();
 
-// Check if aborted
-console.log(fetchUser.aborted); // true
+// Check if cancelled
+console.log(fetchUser.cancelled); // true
 
 // Next call gets a fresh signal
 await fetchUser(456);
@@ -1973,8 +1973,8 @@ await fetchUser(456);
 
 **Additional Properties:**
 
-- `action.abort()` - Abort the currently running action
-- `action.aborted` - Whether the action has been aborted
+- `action.cancel()` - Cancel the currently running action
+- `action.cancelled` - Whether the action has been cancelled
 
 **Options:**
 

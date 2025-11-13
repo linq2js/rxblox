@@ -13,7 +13,7 @@ describe("action.cancellable", () => {
       );
 
       expect(fetchData.status).toBe("idle");
-      expect(fetchData.aborted).toBe(false);
+      expect(fetchData.cancelled).toBe(false);
     });
 
     it("should provide AbortSignal to the function", async () => {
@@ -30,7 +30,7 @@ describe("action.cancellable", () => {
       expect(signalSpy).toHaveBeenCalledWith(expect.any(AbortSignal));
     });
 
-    it("should abort the action", async () => {
+    it("should cancel the action", async () => {
       let abortedDuringExecution = false;
 
       const fetchData = action.cancellable(
@@ -43,11 +43,11 @@ describe("action.cancellable", () => {
 
       const promise = fetchData(123);
       expect(fetchData.status).toBe("loading");
-      expect(fetchData.aborted).toBe(false);
+      expect(fetchData.cancelled).toBe(false);
 
-      // Abort mid-flight
-      fetchData.abort();
-      expect(fetchData.aborted).toBe(true);
+      // Cancel mid-flight
+      fetchData.cancel();
+      expect(fetchData.cancelled).toBe(true);
 
       await promise;
       expect(abortedDuringExecution).toBe(true);
@@ -82,7 +82,7 @@ describe("action.cancellable", () => {
       );
 
       const promise = fetchUser(123);
-      fetchUser.abort();
+      fetchUser.cancel();
 
       // The fetch should eventually throw AbortError
       // (in real browser, this would happen immediately)
@@ -132,7 +132,7 @@ describe("action.cancellable", () => {
   });
 
   describe("event callbacks", () => {
-    it("should call callbacks with error when aborted", async () => {
+    it("should call callbacks with error when cancelled", async () => {
       const errorSpy = vi.fn();
       const doneSpy = vi.fn();
 
@@ -140,7 +140,7 @@ describe("action.cancellable", () => {
         async (signal: AbortSignal, id: number) => {
           await new Promise((resolve) => setTimeout(resolve, 50));
           if (signal.aborted) {
-            throw new Error("Aborted");
+            throw new Error("Cancelled");
           }
           return `data-${id}`;
         },
@@ -153,9 +153,9 @@ describe("action.cancellable", () => {
       );
 
       const promise = fetchData(123);
-      fetchData.abort();
+      fetchData.cancel();
 
-      await expect(promise).rejects.toThrow("Aborted");
+      await expect(promise).rejects.toThrow("Cancelled");
       expect(errorSpy).toHaveBeenCalledWith(expect.any(Error));
       expect(doneSpy).toHaveBeenCalledWith(expect.any(Error), undefined);
     });
@@ -178,7 +178,7 @@ describe("action.cancellable", () => {
       expect(initSpy).toHaveBeenCalledTimes(2);
     });
 
-    it("should call success callback when not aborted", async () => {
+    it("should call success callback when not cancelled", async () => {
       const successSpy = vi.fn();
 
       const fetchData = action.cancellable(
@@ -264,7 +264,7 @@ describe("action.cancellable", () => {
       expect(fetchData.status).toBe("idle");
       expect(fetchData.result).toBeUndefined();
       expect(fetchData.calls).toBe(0);
-      expect(fetchData.aborted).toBe(false);
+      expect(fetchData.cancelled).toBe(false);
     });
   });
 
@@ -329,7 +329,7 @@ describe("action.cancellable", () => {
       const promise = uploadFile({ name: "large-file.pdf", size: 1000000 });
 
       // Cancel after a short delay
-      setTimeout(() => uploadFile.abort(), 25);
+      setTimeout(() => uploadFile.cancel(), 25);
 
       await expect(promise).rejects.toThrow("Upload cancelled");
       expect(uploadFile.status).toBe("error");

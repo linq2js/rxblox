@@ -2,6 +2,11 @@ import { action, Action, ActionOptions } from "./action";
 import { getDispatcher } from "./dispatcher";
 import { disposableToken } from "./disposableDispatcher";
 
+export type AborterOptions = {
+  /** Whether to automatically reset the AbortController after each `abort` call */
+  autoReset?: boolean;
+};
+
 /**
  * Creates an AbortController wrapper with reset capability.
  *
@@ -24,19 +29,31 @@ import { disposableToken } from "./disposableDispatcher";
  * ac.reset();
  * ```
  */
-export function aborter() {
+export function aborter(options: AborterOptions = {}) {
   let controller = new AbortController();
 
   return {
     get signal() {
       return controller.signal;
     },
+    /**
+     * Abort the current request and optionally reset the AbortController
+     */
     abort() {
       controller.abort();
+      if (options.autoReset) {
+        controller = new AbortController();
+      }
     },
-    aborted: () => {
+    /**
+     * Whether the current request has been aborted
+     */
+    get aborted() {
       return controller.signal.aborted;
     },
+    /**
+     * Reset the AbortController to a fresh instance
+     */
     reset() {
       // Abort the old controller before creating a new one
       controller.abort();
@@ -46,36 +63,36 @@ export function aborter() {
 }
 
 /**
- * A cancellable action extends Action with abort capabilities.
+ * A cancellable action extends Action with cancellation capabilities.
  *
- * The action can be cancelled mid-execution using the `abort()` method,
- * and provides an `aborted` property to check if it's been aborted.
+ * The action can be cancelled mid-execution using the `cancel()` method,
+ * and provides a `cancelled` property to check if it's been cancelled.
  */
 export type CancellableAction<
   TArgs extends readonly any[] = any[],
   TResult = void
 > = Action<TArgs, TResult> & {
-  /** Abort the currently running action */
-  abort(): void;
-  /** Whether the action has been aborted */
-  readonly aborted: boolean;
+  /** Cancel the currently running action */
+  cancel(): void;
+  /** Whether the action has been cancelled */
+  readonly cancelled: boolean;
 };
 
 /**
- * Creates a cancellable action that can be aborted mid-execution.
+ * Creates a cancellable action that can be cancelled mid-execution.
  *
  * Cancellable actions receive an `AbortSignal` as their first parameter,
  * which can be used with fetch() or other cancellable APIs. Each new call
  * automatically creates a fresh AbortSignal.
  *
- * The action exposes `abort()` to manually cancel the running operation
- * and `aborted` to check cancellation status.
+ * The action exposes `cancel()` to manually cancel the running operation
+ * and `cancelled` to check cancellation status.
  *
  * @template TResult - The return type (can be Promise<T>)
  * @template TArgs - The arguments tuple type (excluding AbortSignal)
  * @param fn - The function to wrap (receives AbortSignal as first param)
  * @param options - Configuration options
- * @returns A cancellable action with abort capabilities
+ * @returns A cancellable action with cancellation capabilities
  *
  * @example
  * ```ts
@@ -90,10 +107,10 @@ export type CancellableAction<
  * const promise = fetchUser(123);
  *
  * // Cancel it mid-flight
- * fetchUser.abort();
+ * fetchUser.cancel();
  *
- * // Check if aborted
- * console.log(fetchUser.aborted); // true
+ * // Check if cancelled
+ * console.log(fetchUser.cancelled); // true
  *
  * // Next call gets a fresh AbortSignal
  * await fetchUser(456); // Works normally
@@ -131,7 +148,7 @@ export type CancellableAction<
  * const promise = uploadFile(myFile);
  *
  * // User clicks cancel button
- * uploadFile.abort(); // Cancels the upload
+ * uploadFile.cancel(); // Cancels the upload
  * ```
  */
 export function cancellableAction<
@@ -163,18 +180,18 @@ export function cancellableAction<
     }
   );
 
-  // Add reactive getter for aborted status
+  // Add reactive getter for cancelled status
   Object.defineProperties(a, {
-    aborted: {
+    cancelled: {
       get: () => {
-        return ac.signal.aborted;
+        return ac.aborted;
       },
     },
   });
 
-  // Add abort method
+  // Add cancel method
   Object.assign(a, {
-    abort: () => {
+    cancel: () => {
       ac.abort();
     },
   });
