@@ -18,7 +18,7 @@ import { signal } from "./signal";
 import isEqual from "lodash/isEqual";
 import { providerToken, useProviderResolver } from "./provider";
 import { useRerender } from "./useRerender";
-import { emitter } from "./emitter";
+import { Emitter, emitter } from "./emitter";
 import { useUnmount } from "./useUnmount";
 import { getDispatcher, withDispatchers } from "./dispatcher";
 import { EventDispatcher, eventToken } from "./eventDispatcher";
@@ -172,7 +172,10 @@ export function blox<
      * Created once per component instance and reused across renders.
      */
     const getSignal = useMemo(
-      () => signalRegistry<keyof PropsWithoutRef<TProps>>(),
+      () =>
+        signalRegistry<keyof PropsWithoutRef<TProps>>(
+          eventDispatcher.emitters.unmount
+        ),
       []
     );
 
@@ -358,12 +361,19 @@ export function blox<
  * const nameSignal2 = registry('name', 'Bob'); // Returns same signal as nameSignal
  * ```
  */
-export function signalRegistry<TKey>() {
+export function signalRegistry<TKey>(onDispose?: Emitter) {
   const signals = new Map<TKey, MutableSignal<unknown>>();
 
   return (key: TKey, initialValue: unknown) => {
     if (!signals.has(key)) {
-      signals.set(key, signal(initialValue));
+      signals.set(
+        key,
+        onDispose
+          ? withDispatchers([disposableToken(onDispose)], () =>
+              signal(initialValue)
+            )
+          : signal(initialValue)
+      );
     }
     return signals.get(key)!;
   };
