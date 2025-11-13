@@ -728,4 +728,306 @@ describe("rx", () => {
       });
     });
   });
+
+  describe("rx with signal array overload", () => {
+    it("should unwrap signals and pass values to callback", () => {
+      const count = signal(5);
+      const multiplier = signal(3);
+
+      render(
+        <div data-testid="result">
+          {rx([count, multiplier], (c, m) => (
+            <span>
+              {c} × {m} = {c * m}
+            </span>
+          ))}
+        </div>
+      );
+
+      expect(screen.getByTestId("result")).toHaveTextContent("5 × 3 = 15");
+    });
+
+    it("should update when signals change", async () => {
+      const count = signal(2);
+      const multiplier = signal(4);
+
+      render(
+        <div data-testid="result">
+          {rx([count, multiplier], (c, m) => (
+            <span>Result: {c * m}</span>
+          ))}
+        </div>
+      );
+
+      expect(screen.getByTestId("result")).toHaveTextContent("Result: 8");
+
+      act(() => count.set(5));
+      await waitFor(() => {
+        expect(screen.getByTestId("result")).toHaveTextContent("Result: 20");
+      });
+
+      act(() => multiplier.set(10));
+      await waitFor(() => {
+        expect(screen.getByTestId("result")).toHaveTextContent("Result: 50");
+      });
+    });
+
+    it("should handle undefined/null/false in signal array", () => {
+      const count = signal(10);
+      const maybeSignal: Signal<number> | undefined = undefined;
+
+      render(
+        <div data-testid="result">
+          {rx([count, maybeSignal, false, null], (c, m, f, n) => (
+            <span>
+              c={c}, m={m === undefined ? "undef" : m}, f=
+              {f === undefined ? "undef" : f}, n={n === undefined ? "undef" : n}
+            </span>
+          ))}
+        </div>
+      );
+
+      expect(screen.getByTestId("result")).toHaveTextContent(
+        "c=10, m=undef, f=undef, n=undef"
+      );
+    });
+
+    it("should work with empty signal array", () => {
+      render(
+        <div data-testid="result">
+          {rx([], () => (
+            <span>No dependencies</span>
+          ))}
+        </div>
+      );
+
+      expect(screen.getByTestId("result")).toHaveTextContent("No dependencies");
+    });
+
+    it("should support multiple signal types", async () => {
+      const strSignal = signal("hello");
+      const numSignal = signal(42);
+      const boolSignal = signal(true);
+
+      render(
+        <div data-testid="result">
+          {rx([strSignal, numSignal, boolSignal], (str, num, bool) => (
+            <span>
+              {str}-{num}-{bool ? "yes" : "no"}
+            </span>
+          ))}
+        </div>
+      );
+
+      expect(screen.getByTestId("result")).toHaveTextContent("hello-42-yes");
+
+      act(() => {
+        strSignal.set("world");
+        numSignal.set(99);
+        boolSignal.set(false);
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("result")).toHaveTextContent("world-99-no");
+      });
+    });
+  });
+
+  describe("rx with component and props overload", () => {
+    it("should auto-unwrap signal props", () => {
+      const title = signal("Hello World");
+      const className = "test-class";
+
+      render(
+        <div data-testid="container">
+          {rx("div", {
+            title: title,
+            className: className,
+            children: "Content",
+          })}
+        </div>
+      );
+
+      const container = screen.getByTestId("container");
+      const div = container.querySelector("div");
+      expect(div).toHaveAttribute("title", "Hello World");
+      expect(div).toHaveClass("test-class");
+      expect(div).toHaveTextContent("Content");
+    });
+
+    it("should update when signal props change", async () => {
+      const text = signal("Initial");
+
+      render(
+        <div data-testid="container">
+          {rx("span", {
+            children: text,
+            "data-testid": "span",
+          })}
+        </div>
+      );
+
+      expect(screen.getByTestId("span")).toHaveTextContent("Initial");
+
+      act(() => text.set("Updated"));
+      await waitFor(() => {
+        expect(screen.getByTestId("span")).toHaveTextContent("Updated");
+      });
+    });
+
+    it("should work with multiple signal props", async () => {
+      const title = signal("Title");
+      const className = signal("class-1");
+      const id = signal("id-1");
+
+      render(
+        <div data-testid="container">
+          {rx("div", {
+            title: title,
+            className: className,
+            id: id,
+            "data-testid": "target",
+          })}
+        </div>
+      );
+
+      const target = screen.getByTestId("target");
+      expect(target).toHaveAttribute("title", "Title");
+      expect(target).toHaveClass("class-1");
+      expect(target).toHaveAttribute("id", "id-1");
+
+      act(() => {
+        title.set("New Title");
+        className.set("class-2");
+        id.set("id-2");
+      });
+
+      await waitFor(() => {
+        expect(target).toHaveAttribute("title", "New Title");
+        expect(target).toHaveClass("class-2");
+        expect(target).toHaveAttribute("id", "id-2");
+      });
+    });
+
+    it("should work with custom components", async () => {
+      const CustomComponent = ({
+        value,
+        label,
+      }: {
+        value: number;
+        label: string;
+      }) => (
+        <div data-testid="custom">
+          {label}: {value}
+        </div>
+      );
+
+      const count = signal(42);
+      const label = "Count";
+
+      render(
+        <div>
+          {rx(CustomComponent, {
+            value: count,
+            label: label,
+          })}
+        </div>
+      );
+
+      expect(screen.getByTestId("custom")).toHaveTextContent("Count: 42");
+
+      act(() => count.set(100));
+      await waitFor(() => {
+        expect(screen.getByTestId("custom")).toHaveTextContent("Count: 100");
+      });
+    });
+
+    it("should handle signal children", async () => {
+      const content = signal("Dynamic content");
+
+      render(
+        <div data-testid="container">
+          {rx("div", {
+            className: "wrapper",
+            children: content,
+          })}
+        </div>
+      );
+
+      const wrapper = screen.getByTestId("container").querySelector(".wrapper");
+      expect(wrapper).toHaveTextContent("Dynamic content");
+
+      act(() => content.set("Updated content"));
+      await waitFor(() => {
+        expect(wrapper).toHaveTextContent("Updated content");
+      });
+    });
+
+    it("should mix static and signal props", async () => {
+      const dynamicTitle = signal("Dynamic");
+      const staticClass = "static-class";
+
+      render(
+        <div data-testid="container">
+          {rx("div", {
+            title: dynamicTitle,
+            className: staticClass,
+            "data-static": "value",
+            "data-testid": "target",
+          })}
+        </div>
+      );
+
+      const target = screen.getByTestId("target");
+      expect(target).toHaveAttribute("title", "Dynamic");
+      expect(target).toHaveClass("static-class");
+      expect(target).toHaveAttribute("data-static", "value");
+
+      act(() => dynamicTitle.set("Changed"));
+      await waitFor(() => {
+        expect(target).toHaveAttribute("title", "Changed");
+      });
+      expect(target).toHaveClass("static-class"); // Static props unchanged
+    });
+
+    it("should throw error with invalid arguments", () => {
+      // Suppress console.error for this test
+      const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      expect(() => {
+        render(<div>{rx("div", null as any)}</div>);
+      }).toThrow("Invalid arguments");
+
+      consoleSpy.mockRestore();
+    });
+
+    it("should work with event handlers", async () => {
+      const handleClick = vi.fn();
+      const buttonText = signal("Click me");
+
+      render(
+        <div>
+          {rx("button", {
+            onClick: handleClick,
+            children: buttonText,
+            "data-testid": "button",
+          })}
+        </div>
+      );
+
+      const button = screen.getByTestId("button");
+      expect(button).toHaveTextContent("Click me");
+
+      button.click();
+      expect(handleClick).toHaveBeenCalledTimes(1);
+
+      act(() => buttonText.set("Updated"));
+      await waitFor(() => {
+        expect(button).toHaveTextContent("Updated");
+      });
+
+      button.click();
+      expect(handleClick).toHaveBeenCalledTimes(2);
+    });
+  });
 });

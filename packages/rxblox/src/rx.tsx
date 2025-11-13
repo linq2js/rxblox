@@ -1,6 +1,10 @@
 import {
+  type ComponentProps,
+  type ComponentType,
+  type ReactNode,
+  type JSXElementConstructor,
+  createElement,
   memo,
-  ReactNode,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -10,6 +14,8 @@ import { signalDispatcher, signalToken } from "./signalDispatcher";
 import { emitter } from "./emitter";
 import { useRerender } from "./useRerender";
 import { withDispatchers } from "./dispatcher";
+import { Signal } from "./types";
+import { isSignal } from "./signal";
 
 /**
  * Checks if two Sets are different by comparing their sizes and contents.
@@ -142,10 +148,100 @@ export const Reactive = memo(function Reactive(props: { exp: () => unknown }) {
 });
 
 /**
+ * Creates a reactive expression with explicit signal dependencies.
+ *
+ * This overload allows you to specify which signals to track explicitly,
+ * and receive their unwrapped values as function parameters. This provides:
+ * - Better type inference
+ * - Explicit dependency list (similar to React's dependency arrays)
+ * - Potential performance optimization (only tracks listed signals)
+ *
+ * @param signals - Array of signals to track. Can include undefined/null/false for conditional signals.
+ * @param fn - Function that receives unwrapped signal values as arguments
+ * @returns A ReactNode that renders the function result and updates when signals change
+ *
+ * @example
+ * ```tsx
+ * const count = signal(0);
+ * const multiplier = signal(2);
+ *
+ * // Explicit dependencies - count and multiplier
+ * {rx([count, multiplier], (c, m) => (
+ *   <div>{c} × {m} = {c * m}</div>
+ * ))}
+ *
+ * // With optional signals
+ * const maybeSignal = condition ? signal(5) : undefined;
+ * {rx([count, maybeSignal], (c, value) => (
+ *   <div>Count: {c}, Value: {value ?? 'N/A'}</div>
+ * ))}
+ * ```
+ */
+export function rx<
+  const TSignals extends readonly (Signal<any> | undefined | null | false)[]
+>(
+  signals: TSignals,
+  fn: (
+    ...values: {
+      [K in keyof TSignals]: Exclude<
+        // ensure item is signal
+        TSignals[K],
+        undefined | null | false
+      > extends Signal<infer T>
+        ? // infer signal value can be optional or not
+          Exclude<TSignals[K], Signal<any>> extends undefined | null | false
+          ? T | undefined
+          : T
+        : undefined;
+    }
+  ) => ReactNode
+): ReactNode;
+
+/**
+ * Creates a reactive component with auto-reactive props.
+ *
+ * This overload automatically unwraps signal props when creating a component.
+ * Any prop that is a signal will be automatically called (unwrapped) when rendering.
+ * This is convenient for simple component creation with reactive props.
+ *
+ * @param componentType - Component type (string for HTML elements or component constructor)
+ * @param componentProps - Props object where signal values are automatically unwrapped
+ * @returns A ReactNode that re-renders when any signal props change
+ *
+ * @example
+ * ```tsx
+ * const title = signal("Hello");
+ * const count = signal(42);
+ *
+ * // Auto-unwraps signal props
+ * {rx("div", {
+ *   title: title,           // Automatically becomes title()
+ *   className: "box",       // Static props stay as-is
+ *   children: count,        // Signal child also unwrapped
+ * })}
+ *
+ * // Equivalent to:
+ * {rx(() => <div title={title()} className="box">{count()}</div>)}
+ *
+ * // Works with custom components too
+ * {rx(MyComponent, { value: count, label: "Count" })}
+ * ```
+ */
+export function rx<
+  TComponentType extends
+    | keyof JSX.IntrinsicElements
+    | JSXElementConstructor<any>
+>(
+  componentType: TComponentType,
+  componentProps: ComponentProps<TComponentType>
+): ReactNode;
+
+/**
  * Creates a reactive expression that automatically updates when its signal dependencies change.
  *
- * This is a convenience function that wraps the Reactive component.
- * Use it in JSX to create reactive expressions that re-render when signals change.
+ * This is the original and most flexible overload. It executes the expression function
+ * and automatically tracks all signals accessed during execution. The component will
+ * re-render whenever any tracked signal changes.
  *
  * @param exp - Expression function that may access signals. The result will be rendered.
  * @returns A ReactNode that renders the expression result and updates reactively
@@ -153,15 +249,96 @@ export const Reactive = memo(function Reactive(props: { exp: () => unknown }) {
  * @example
  * ```tsx
  * const count = signal(0);
+ * const name = signal("Alice");
  *
- * // Reactive expression that updates when count changes
- * <div>
- *   {rx(() => `Count: ${count()}`)}
- * </div>
+ * // Reactive expression that updates when count or name changes
+ * {rx(() => (
+ *   <div>
+ *     <h1>Hello, {name()}!</h1>
+ *     <p>Count: {count()}</p>
+ *   </div>
+ * ))}
  *
- * count.set(5); // Component automatically updates to show "Count: 5"
+ * // With conditional logic
+ * {rx(() => {
+ *   const c = count();
+ *   if (c > 10) return <div>High: {c}</div>;
+ *   return <div>Low: {c}</div>;
+ * })}
  * ```
  */
-export function rx(exp: () => unknown): ReactNode {
+export function rx(exp: () => unknown): ReactNode;
+/**
+ * Implementation of rx() with multiple overloads.
+ *
+ * This function dispatches to different implementations based on the arguments:
+ * 1. rx([signals], fn) - Explicit signal dependencies with callback
+ * 2. rx(component, props) - Auto-reactive component creation
+ * 3. rx(() => ...) - Original expression-based reactive rendering
+ *
+ * All overloads ultimately create a Reactive component that tracks signal
+ * dependencies and re-renders when they change.
+ */
+export function rx(...args: any[]): ReactNode {
+  let exp: () => ReactNode;
+
+  // Overload 1: rx([signals], fn)
+  // Unwraps an array of signals and passes their values to the callback
+  if (Array.isArray(args[0])) {
+    const maybeSignals = args[0] as readonly (
+      | Signal<any>
+      | undefined
+      | null
+      | false
+    )[];
+    const fn = args[1] as (...args: any[]) => ReactNode;
+
+    // Create expression that unwraps each signal (or returns undefined for non-signals)
+    exp = () =>
+      fn(
+        ...maybeSignals.map((s) => (typeof s === "function" ? s() : undefined))
+      );
+  }
+  // Overload 3: rx(() => ...)
+  // Simple expression function - the original and most flexible overload
+  else if (args.length === 1) {
+    exp = args[0];
+  }
+  // Overload 2: rx(component, props)
+  // Auto-reactive component with signal props automatically unwrapped
+  else {
+    if (!args[1]) {
+      throw new Error("Invalid arguments");
+    }
+
+    const componentType = args[0] as ComponentType<any>;
+    const componentProps: ComponentProps<typeof componentType> = args[1];
+
+    // Separate props into static (non-signal) and dynamic (signal) props
+    const staticProps: Record<string, any> = {};
+    const dynamicProps: [string, Signal<any>][] = [];
+
+    Object.entries(componentProps).forEach(([key, value]) => {
+      if (isSignal(value)) {
+        // Store signal props separately for unwrapping during render
+        dynamicProps.push([key, value]);
+      } else {
+        // Static props can be copied directly
+        staticProps[key] = value;
+      }
+    });
+
+    // Create expression that unwraps dynamic props and merges with static props
+    exp = () => {
+      const finalProps = { ...staticProps };
+      // Unwrap each signal prop by calling it
+      dynamicProps.forEach(([key, signal]) => {
+        finalProps[key] = signal();
+      });
+      return createElement(componentType, finalProps);
+    };
+  }
+
+  // All overloads create a Reactive component with the constructed expression
   return <Reactive exp={exp} />;
 }

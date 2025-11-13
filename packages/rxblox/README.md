@@ -384,15 +384,15 @@ Providers inject values down the component tree without causing re-renders like 
 import { useState } from "react";
 import { provider, blox, rx } from "rxblox";
 
-// Create provider (returns [consume, Provider])
-const [consumeTheme, ThemeProvider] = provider(
+// Create provider (returns [withXXX, XXXProvider])
+const [withTheme, ThemeProvider] = provider(
   "theme",
   "light" as "light" | "dark"
 );
 
 // Consumer component
 const ThemeDisplay = blox(() => {
-  const theme = consumeTheme(); // Returns Signal<"light" | "dark"> (read-only)
+  const theme = withTheme(); // Returns Signal<"light" | "dark"> (read-only)
 
   // ⚠️ Component itself won't re-render when theme changes!
   // Only rx() or effect() will react to changes
@@ -431,9 +431,9 @@ function App() {
 
 **⚠️ Critical Differences from React Context:**
 
-1. **No automatic re-renders**: The component using `consume()` does NOT re-render when the provider value changes
+1. **No automatic re-renders**: The component using `withXXX()` does NOT re-render when the provider value changes
 2. **Only `rx()` and `effect()` react**: You must explicitly wrap reactive code
-3. **Returns signals**: `consumeTheme()` returns a signal, not the raw value
+3. **Returns signals**: `withTheme()` returns a signal, not the raw value
 4. **Read-only for consumers**: Consumers get `Signal<T>` (without `.set()` or `.reset()`), only the Provider can change the value
 
 Think of providers as **dependency injection for signals**, not React Context.
@@ -574,11 +574,25 @@ const TodoItem = blox<{ todo: Todo }>((props) => {
 
 One of the most powerful features of `blox` is the ability to extract and reuse reactive logic. Since signals, effects, and lifecycle hooks can be called anywhere (not just in React components), you can create composable logic functions.
 
+### Naming Conventions
+
+**Universal Logic** (plain names or `xxxLogic` suffix)
+- Can be called anywhere
+- Only uses: `signal()`, `effect()`, `rx()`
+- Example: `counterLogic()`, `formState()`, `timer()`
+
+**Blox-only Logic** (`withXXX` prefix)
+- Must be called inside `blox()` components
+- Uses blox APIs: `blox.onMount()`, `blox.onUnmount()`, `blox.capture()`
+- Example: `withWebSocket()`, `withCleanup()`, `withReactRouter()`
+
+⚠️ **Never use `useXXX`** - Reserved for React hooks only!
+
 ### Basic Example
 
 ```tsx
-// Reusable logic function
-function useCounter(initialValue = 0) {
+// Universal logic - can use anywhere
+function counterLogic(initialValue = 0) {
   const count = signal(initialValue);
   const doubled = signal(() => count() * 2);
 
@@ -591,7 +605,7 @@ function useCounter(initialValue = 0) {
 
 // Use in components
 const Counter = blox(() => {
-  const counter = useCounter(0);
+  const counter = counterLogic(0);
 
   return (
     <div>
@@ -604,12 +618,13 @@ const Counter = blox(() => {
 });
 ```
 
-### With Cleanup
+### Blox-only Logic with Cleanup
 
-Use `on.unmount()` to register cleanup:
+Use `blox.onUnmount()` for cleanup in blox-only logic:
 
 ```tsx
-function useWebSocket(url: string) {
+// Blox-only logic - uses blox.onUnmount()
+function withWebSocket(url: string) {
   const messages = signal<string[]>([]);
   const connected = signal(false);
 
@@ -618,13 +633,13 @@ function useWebSocket(url: string) {
   ws.onclose = () => connected.set(false);
   ws.onmessage = (e) => messages.set((prev) => [...prev, e.data]);
 
-  on.unmount(() => ws.close()); // Cleanup
+  blox.onUnmount(() => ws.close()); // Cleanup
 
   return { messages, connected, send: (msg: string) => ws.send(msg) };
 }
 
 const Chat = blox<{ roomId: string }>((props) => {
-  const ws = useWebSocket(`wss://example.com/${props.roomId}`);
+  const ws = withWebSocket(`wss://example.com/${props.roomId}`);
 
   return rx(() => (
     <div>
@@ -644,7 +659,8 @@ const Chat = blox<{ roomId: string }>((props) => {
 Extract business logic into reusable functions:
 
 ```tsx
-function useAuthState() {
+// Universal logic - no blox APIs, can use anywhere
+function authStateLogic() {
   const user = signal<User | null>(null);
   const loading = signal(false);
   const error = signal<string | null>(null);
@@ -678,16 +694,27 @@ function useAuthState() {
 Combine smaller logic functions into larger ones:
 
 ```tsx
-function useTimer(interval = 1000) {
+// Blox-only - uses blox.onUnmount()
+function withTimer(interval = 1000) {
   const elapsed = signal(0);
   const timer = setInterval(() => elapsed.set((p) => p + interval), interval);
-  on.unmount(() => clearInterval(timer));
+  blox.onUnmount(() => clearInterval(timer));
   return { elapsed };
 }
 
-function useTimedCounter() {
-  const counter = useCounter(0);
-  const timer = useTimer(1000);
+// Universal - can use anywhere
+function timedCounterLogic() {
+  const counter = counterLogic(0);
+  
+  effect(() => counter.increment()); // Auto-increment
+
+  return counter;
+}
+
+// Blox-only - combines both
+function withTimedCounter() {
+  const counter = counterLogic(0);
+  const timer = withTimer(1000);
 
   effect(() => counter.increment()); // Auto-increment every second
 
@@ -701,7 +728,8 @@ function useTimedCounter() {
 - ✅ **Testability** - Logic functions can be tested independently
 - ✅ **Separation of concerns** - Keep business logic separate from UI
 - ✅ **No hooks rules** - Call these functions anywhere, in any order
-- ✅ **Automatic cleanup** - `on.unmount()` ensures resources are freed
+- ✅ **Automatic cleanup** - `blox.onUnmount()` ensures resources are freed
+- ✅ **Clear naming** - `withXXX` = blox-only, plain/`xxxLogic` = universal
 
 ---
 
@@ -991,7 +1019,7 @@ Creates a provider for dependency injection of reactive signals.
 **⚠️ This is NOT React Context!** Providers don't cause re-renders. Only `rx()` and `effect()` react to changes.
 
 ```tsx
-const [consumeValue, ValueProvider] = provider("myValue", 0);
+const [withValue, ValueProvider] = provider("myValue", 0);
 
 // In parent
 <ValueProvider value={currentValue}>
@@ -1000,7 +1028,7 @@ const [consumeValue, ValueProvider] = provider("myValue", 0);
 
 // In child (inside blox component)
 const Child = blox(() => {
-  const value = consumeValue(); // Returns Signal<T> (read-only)
+  const value = withValue(); // Returns Signal<T> (read-only)
 
   // ❌ Wrong: Won't update
   return <div>{value()}</div>;
@@ -1010,9 +1038,9 @@ const Child = blox(() => {
 });
 ```
 
-**Returns:** `[consume, Provider]` tuple:
+**Returns:** `[withXXX, XXXProvider]` tuple:
 
-- `consume()` - Function that returns the signal (must be called inside provider tree)
+- `withXXX()` - Function that returns the signal (must be called inside provider tree)
 - `Provider` - React component with `{ value: T; children: ReactNode }` props
 
 **Options:**

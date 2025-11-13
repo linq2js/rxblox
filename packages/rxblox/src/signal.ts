@@ -1,5 +1,5 @@
 import { produce } from "immer";
-import { Listener, MutableSignal } from "./types";
+import type { Listener, MutableSignal, Signal } from "./types";
 import { signalDispatcher, signalToken } from "./signalDispatcher";
 import { emitter } from "./emitter";
 import { getDispatcher, withDispatchers } from "./dispatcher";
@@ -78,10 +78,7 @@ export function signal<T>(
       const dispatcher = signalDispatcher();
       // Execute the computation function and track which signals it accesses
       current = {
-        value: withDispatchers(
-          [signalToken(dispatcher)],
-          value as () => T
-        ),
+        value: withDispatchers([signalToken(dispatcher)], value as () => T),
       };
       for (const signal of dispatcher.signals) {
         onCleanup.add(signal.on(recompute));
@@ -178,4 +175,12 @@ export function signal<T>(
   });
 
   return s;
+}
+
+export function isSignal<T>(value: any): value is Signal<T> {
+  return typeof value === "function" && "peek" in value && "on" in value;
+}
+
+export function isMutableSignal<T>(value: any): value is MutableSignal<T> {
+  return isSignal(value) && "set" in value && "reset" in value;
 }

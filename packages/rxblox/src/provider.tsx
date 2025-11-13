@@ -148,14 +148,14 @@ export type ProviderOptions<T> = {
  * @param name - Unique identifier for the provider
  * @param initialValue - Default value for the provider (cannot be a function)
  * @param options - Configuration options including custom equality function
- * @returns A tuple `[consume, Provider]` where:
- *   - `consume` is a function that returns the provider signal (throws if called outside provider context)
- *   - `Provider` is a React component that accepts `{ value: T; children: ReactNode }` props
+ * @returns A tuple `[withXXX, XXXProvider]` where:
+ *   - `withXXX` is a function that returns the provider signal (throws if called outside provider context)
+ *   - `XXXProvider` is a React component that accepts `{ value: T; children: ReactNode }` props
  *
  * @example
  * ```tsx
  * // Create a provider for theme
- * const [consumeTheme, ThemeProvider] = provider("theme", "light" as "light" | "dark");
+ * const [withTheme, ThemeProvider] = provider("theme", "light" as "light" | "dark");
  *
  * // Provider component supplies the value
  * const App = blox<{ theme: "light" | "dark" }>((props) => {
@@ -168,19 +168,19 @@ export type ProviderOptions<T> = {
  *
  * // ❌ WRONG: Component won't re-render when theme changes
  * const ChildComponent = blox(() => {
- *   const theme = consumeTheme();
+ *   const theme = withTheme();
  *   return <div>Theme: {theme()}</div>; // Static, won't update!
  * });
  *
  * // ✅ CORRECT: Use rx() to make it reactive
  * const ChildComponent = blox(() => {
- *   const theme = consumeTheme();
+ *   const theme = withTheme();
  *   return <div>{rx(() => `Theme: ${theme()}`)}</div>; // Updates!
  * });
  *
  * // ✅ CORRECT: Use effect() for side effects
  * const ChildComponent = blox(() => {
- *   const theme = consumeTheme();
+ *   const theme = withTheme();
  *   effect(() => {
  *     console.log("Theme changed:", theme()); // Runs when theme changes
  *   });
@@ -202,7 +202,7 @@ export function provider<T>(
   };
 
   /**
-   * Consumes the provider's signal within a component.
+   * Accesses the provider's signal within a component (named `withXXX` by convention).
    *
    * Must be called inside a `blox` component within the provider's tree.
    * Returns a **read-only signal** - use `signal()` to get the value.
@@ -215,7 +215,7 @@ export function provider<T>(
    *
    * @example
    * ```tsx
-   * const theme = consumeTheme();
+   * const theme = withTheme();
    *
    * // ❌ Won't update: theme() called outside rx()
    * return <div>{theme()}</div>;
@@ -224,7 +224,7 @@ export function provider<T>(
    * return <div>{rx(() => theme())}</div>;
    * ```
    */
-  const consume = () => {
+  const withValue = () => {
     const currentResolver = getDispatcher(providerToken);
 
     if (!currentResolver) {
@@ -250,5 +250,5 @@ export function provider<T>(
     );
   };
 
-  return [consume, Provider] as const;
+  return [withValue, Provider] as const;
 }
