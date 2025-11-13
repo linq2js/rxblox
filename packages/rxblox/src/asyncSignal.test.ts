@@ -617,7 +617,7 @@ describe("asyncSignal", () => {
         computeCount++;
         const proxy = track({ condition, s1, s2 });
         await delay(10);
-        
+
         if (proxy.condition) {
           return proxy.s1; // Only tracks s1 when condition is true
         }
@@ -688,7 +688,7 @@ describe("asyncSignal", () => {
       const data = asyncSignal(async ({ track }) => {
         const proxy = track({ items, multiplier });
         await delay(10);
-        
+
         let sum = 0;
         for (const item of proxy.items) {
           sum += item;
@@ -754,9 +754,9 @@ describe("asyncSignal", () => {
       const data = asyncSignal(async ({ track }) => {
         // Implicit tracking before await
         const v1 = s1();
-        
+
         await delay(10);
-        
+
         // Explicit tracking after await
         const proxy = track({ s2, s3 });
         return v1 + proxy.s2 + proxy.s3;
@@ -807,7 +807,7 @@ describe("asyncSignal", () => {
 
     it("should handle empty track object", async () => {
       const data = asyncSignal(async ({ track }) => {
-        const proxy = track({});
+        track({});
         await delay(10);
         return "done";
       });

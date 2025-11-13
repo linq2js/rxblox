@@ -1,13 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  type Loadable,
-  type LoadingLoadable,
-  type SuccessLoadable,
-  type ErrorLoadable,
-  LOADABLE_TYPE,
-  loadable,
-  isLoadable,
-} from "./loadable";
+import { type Loadable, LOADABLE_TYPE, loadable, isLoadable } from "./loadable";
 
 describe("loadable", () => {
   describe("loadable factory - loading", () => {
@@ -52,7 +44,6 @@ describe("loadable", () => {
 
       // Type should be LoadingLoadable<{ id: number; name: string }>
       expect(l.status).toBe("loading");
-      type PromiseType = typeof l.promise extends Promise<infer T> ? T : never;
       // TypeScript should infer the correct type
     });
   });
@@ -324,7 +315,7 @@ describe("loadable", () => {
       } catch (e) {
         thrownValue = e;
       }
-      
+
       expect(thrownValue).toBe(promise);
     });
   });
@@ -402,7 +393,10 @@ describe("loadable", () => {
 
     it("should handle generic type parameters correctly", () => {
       // Loading with specific type
-      const loading = loadable<User>("loading", Promise.resolve({ id: 1, name: "Alice" }));
+      const loading = loadable<User>(
+        "loading",
+        Promise.resolve({ id: 1, name: "Alice" })
+      );
       expect(loading.status).toBe("loading");
 
       // Success with inferred type
@@ -418,7 +412,11 @@ describe("loadable", () => {
   describe("real-world scenarios", () => {
     it("should model fetching user data", async () => {
       // Start with loading
-      const userPromise = Promise.resolve({ id: 1, name: "Alice", email: "alice@example.com" });
+      const userPromise = Promise.resolve({
+        id: 1,
+        name: "Alice",
+        email: "alice@example.com",
+      });
       const loading = loadable("loading", userPromise);
       expect(loading.status).toBe("loading");
 
@@ -439,7 +437,7 @@ describe("loadable", () => {
     });
 
     it("should work with React-like render logic", () => {
-      const renderLoadable = <T,>(l: Loadable<T>) => {
+      const renderLoadable = <T>(l: Loadable<T>) => {
         switch (l.status) {
           case "loading":
             return "Loading...";
@@ -450,8 +448,12 @@ describe("loadable", () => {
         }
       };
 
-      expect(renderLoadable(loadable("loading", Promise.resolve(1)))).toBe("Loading...");
-      expect(renderLoadable(loadable("success", { value: 42 }))).toBe('Success: {"value":42}');
+      expect(renderLoadable(loadable("loading", Promise.resolve(1)))).toBe(
+        "Loading..."
+      );
+      expect(renderLoadable(loadable("success", { value: 42 }))).toBe(
+        'Success: {"value":42}'
+      );
       expect(renderLoadable(loadable("error", "Failed"))).toBe("Error: Failed");
     });
   });
@@ -463,4 +465,3 @@ type User = {
   name: string;
   email?: string;
 };
-

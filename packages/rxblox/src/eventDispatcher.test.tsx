@@ -1,7 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { render } from "@testing-library/react";
 import { blox } from "./index";
-import { on } from "./eventDispatcher";
 
 describe("eventDispatcher", () => {
   describe("blox.onMount", () => {
@@ -103,4 +102,3 @@ describe("eventDispatcher", () => {
     });
   });
 });
-
