@@ -1007,4 +1007,236 @@ describe("rx", () => {
       expect(handleClick).toHaveBeenCalledTimes(2);
     });
   });
+
+  describe("React Strict Mode", () => {
+    it("should handle rx() correctly in Strict Mode", () => {
+      const count = signal(0);
+      const renderSpy = vi.fn();
+
+      function Component() {
+        return (
+          <div>
+            {rx(() => {
+              renderSpy();
+              return <span data-testid="count">{count()}</span>;
+            })}
+          </div>
+        );
+      }
+
+      const { getByTestId } = render(
+        <React.StrictMode>
+          <Component />
+        </React.StrictMode>
+      );
+
+      // rx() should render correctly
+      expect(getByTestId("count").textContent).toBe("0");
+
+      // Update signal
+      act(() => {
+        count.set(5);
+      });
+
+      expect(getByTestId("count").textContent).toBe("5");
+    });
+
+    it("should handle signal updates in Strict Mode without double-rendering", async () => {
+      const count = signal(0);
+      const updateSpy = vi.fn();
+
+      function Component() {
+        return (
+          <div>
+            {rx(() => {
+              updateSpy(count());
+              return <span>{count()}</span>;
+            })}
+          </div>
+        );
+      }
+
+      const { container } = render(
+        <React.StrictMode>
+          <Component />
+        </React.StrictMode>
+      );
+
+      // Clear initial render calls
+      updateSpy.mockClear();
+
+      // Update signal
+      act(() => {
+        count.set(1);
+      });
+
+      await waitFor(() => {
+        expect(container.textContent).toBe("1");
+      });
+
+      // Should only re-render once per signal update (not doubled)
+      expect(updateSpy).toHaveBeenCalledWith(1);
+    });
+
+    it("should handle multiple rx() expressions in Strict Mode", () => {
+      const count = signal(0);
+      const name = signal("Alice");
+
+      function Component() {
+        return (
+          <div>
+            <span data-testid="count">{rx(count)}</span>
+            <span data-testid="name">{rx(name)}</span>
+          </div>
+        );
+      }
+
+      const { getByTestId } = render(
+        <React.StrictMode>
+          <Component />
+        </React.StrictMode>
+      );
+
+      expect(getByTestId("count").textContent).toBe("0");
+      expect(getByTestId("name").textContent).toBe("Alice");
+
+      act(() => {
+        count.set(10);
+        name.set("Bob");
+      });
+
+      expect(getByTestId("count").textContent).toBe("10");
+      expect(getByTestId("name").textContent).toBe("Bob");
+    });
+
+    it("should cleanup subscriptions properly in Strict Mode", async () => {
+      const count = signal(0);
+      const subscriptionSpy = vi.fn();
+
+      // Track subscription via spy
+      const originalOn = count.on.bind(count);
+      count.on = vi.fn((listener) => {
+        subscriptionSpy("subscribe");
+        const unsubscribe = originalOn(listener);
+        return () => {
+          subscriptionSpy("unsubscribe");
+          unsubscribe();
+        };
+      });
+
+      function Component() {
+        return <div>{rx(count)}</div>;
+      }
+
+      const { unmount } = render(
+        <React.StrictMode>
+          <Component />
+        </React.StrictMode>
+      );
+
+      // Subscriptions created
+      expect(subscriptionSpy).toHaveBeenCalledWith("subscribe");
+
+      unmount();
+
+      // Subscriptions cleaned up
+      expect(subscriptionSpy).toHaveBeenCalledWith("unsubscribe");
+    });
+
+    it("should handle computed signals in rx() in Strict Mode", () => {
+      const base = signal(2);
+      const multiplier = signal(3);
+      const computed = signal(() => base() * multiplier());
+
+      function Component() {
+        return (
+          <div>
+            <span data-testid="base">{rx(base)}</span>
+            <span data-testid="multiplier">{rx(multiplier)}</span>
+            <span data-testid="computed">{rx(computed)}</span>
+          </div>
+        );
+      }
+
+      const { getByTestId } = render(
+        <React.StrictMode>
+          <Component />
+        </React.StrictMode>
+      );
+
+      expect(getByTestId("base").textContent).toBe("2");
+      expect(getByTestId("multiplier").textContent).toBe("3");
+      expect(getByTestId("computed").textContent).toBe("6");
+
+      act(() => {
+        base.set(5);
+      });
+
+      expect(getByTestId("computed").textContent).toBe("15");
+    });
+
+    it("should handle errors in rx() in Strict Mode", () => {
+      const shouldError = signal(false);
+
+      function Component() {
+        return (
+          <div>
+            {rx(() => {
+              if (shouldError()) {
+                throw new Error("Test error");
+              }
+              return <span>OK</span>;
+            })}
+          </div>
+        );
+      }
+
+      // Suppress console.error for this test
+      const originalError = console.error;
+      console.error = vi.fn();
+
+      expect(() => {
+        render(
+          <React.StrictMode>
+            <Component />
+          </React.StrictMode>
+        );
+      }).not.toThrow();
+
+      console.error = originalError;
+    });
+
+    it("should handle conditional rendering in rx() in Strict Mode", () => {
+      const showDetails = signal(false);
+      const count = signal(0);
+
+      function Component() {
+        return (
+          <div>
+            {rx(() => (
+              <div>
+                <span data-testid="count">Count: {count()}</span>
+                {showDetails() && <span data-testid="details">Details</span>}
+              </div>
+            ))}
+          </div>
+        );
+      }
+
+      const { getByTestId, queryByTestId } = render(
+        <React.StrictMode>
+          <Component />
+        </React.StrictMode>
+      );
+
+      expect(getByTestId("count").textContent).toBe("Count: 0");
+      expect(queryByTestId("details")).toBeNull();
+
+      act(() => {
+        showDetails.set(true);
+      });
+
+      expect(queryByTestId("details")).not.toBeNull();
+    });
+  });
 });

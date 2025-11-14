@@ -10,47 +10,53 @@ Signals, computed values, and reactive components with zero boilerplate.
 
 ## Why rxblox?
 
-**React state management is broken. Let's fix it.**
+**React state management needs better tools.**
 
-Traditional React re-renders entire components when state changes. You spend more time managing `useCallback`, `useMemo`, `useEffect` dependency arrays than writing actual features. Component optimization becomes a full-time job.
+Traditional React re-renders entire component functions when state changes. You spend significant time managing `useCallback`, `useMemo`, and `useEffect` dependency arrays just to avoid unnecessary work. Component optimization often becomes a maintenance burden.
 
-**rxblox** flips this around with **fine-grained reactivity** - only the exact UI elements that depend on changed state update. No component re-renders. No dependency arrays. No hook rules. Just reactive state that works.
+**rxblox** provides **fine-grained reactivity** - only the exact UI subtrees that depend on changed state re-execute. Component definition phases run once per mount. Reactive expressions (`rx()`) update independently. No manual dependency arrays. No Rules of Hooks limitations.
 
 ```tsx
-// ❌ Traditional React - entire component re-renders
+// ❌ Traditional React - entire function body re-executes
 function Counter() {
   const [count, setCount] = useState(0);
-  console.log("Component rendered"); // Logs on EVERY state change
+  console.log("Component function executed"); // Runs on EVERY state change
   return <div>{count}</div>;
 }
 ```
 
 ```tsx
-// ✅ rxblox - only the reactive expression updates
+// ✅ rxblox - definition runs once, only rx() subtrees re-execute
 import { signal, rx } from "rxblox";
 
 const count = signal(0);
 
-function Counter() {
-  console.log("Component rendered"); // Logs ONCE
-  return <div>{rx(count)}</div>; // Only this updates
-}
+const Counter = blox(() => {
+  console.log("Component mounted"); // Runs ONCE
+
+  return (
+    <div>
+      {rx(count)} {/* only this part will update */}
+      <HeavyComponent />
+    </div>
+  ); // Only this subtree re-executes on signal changes
+});
 ```
 
 ### Key Benefits
 
-- 🎯 **Fine-grained reactivity** - Update only what changed, not entire components
-- 🚀 **Zero boilerplate** - No actions, reducers, or store setup
+- 🎯 **Fine-grained reactivity** - Subtree updates instead of full component re-execution
+- 🚀 **Minimal boilerplate** - No actions, reducers, or centralized store configuration
 - 🔄 **Computed values** - Automatic dependency tracking and memoization
-- ⚡ **Better performance** - Efficient updates with minimal overhead
-- 🎨 **Reactive components** - Build components that automatically track dependencies
-- 🔌 **Dependency injection** - Provider pattern without Context re-render overhead
-- 🧹 **Automatic cleanup** - No memory leaks, subscriptions cleaned up automatically
-- 📦 **TypeScript first** - Full type safety out of the box
-- 🪶 **Lightweight** - Minimal bundle size
-- 🎪 **No hooks rules** - Call signals anywhere (conditionally, in loops, etc.)
-- 🔀 **Async signals** - First-class support for async operations with automatic state management
-- 📊 **Loadable states** - Built-in loading/success/error state handling
+- ⚡ **Performance optimizations** - Reduced reconciliation overhead for signal-driven updates
+- 🎨 **Reactive components** - `blox()` components with definition-phase-once semantics
+- 🔌 **Dependency injection** - Provider pattern with fine-grained subscriptions
+- 🧹 **Automatic cleanup** - `blox` lifecycle manages subscriptions and effects
+- 📦 **TypeScript first** - Full type inference and type safety
+- 🪶 **Lightweight** - Small bundle footprint
+- 🎪 **Flexible signal access** - Call signals conditionally, in loops, outside React render
+- 🔀 **Async signals** - Built-in async state management with loading/success/error tracking
+- 📊 **Loadable states** - Discriminated union types for async operation states
 
 ---
 
@@ -133,7 +139,7 @@ userId.set(2); // Just works. No dependency arrays. No stale closures. No bugs.
 - ❌ No `useCallback` - functions are stable by default
 - ❌ No `useMemo` - computed signals handle it automatically
 - ❌ No dependency arrays - automatic tracking "just works"
-- ❌ No re-renders - only reactive expressions update
+- ❌ Reduced function re-execution - only reactive expressions update
 - ❌ No stale closures - signals always have the current value
 - ❌ No Rules of Hooks - call signals anywhere, anytime
 
@@ -145,7 +151,7 @@ This isn't just about performance. It's about **developer experience**.
 
 Every millisecond counts. Every re-render matters. Every line of boilerplate is time stolen from building features. With rxblox, you write what you mean and it just works.
 
-- **Components run once** - No re-renders, no optimization needed
+- **Components run once** - Reduced function re-execution, no optimization needed
 - **Dependencies auto-track** - No arrays, no stale closures, no bugs
 - **Code is simple** - Write business logic, not React plumbing
 
@@ -203,6 +209,8 @@ function Counter() {
   - [Loadable States](#8-loadable-states)
   - [Wait Utilities](#9-wait-utilities)
   - [Actions](#10-actions)
+- [Lifecycle & Cleanup](#lifecycle--cleanup)
+- [Performance & Memory Considerations](#performance--memory-considerations)
 - [Patterns & Best Practices](#patterns--best-practices)
   - [Common Patterns](#common-patterns)
   - [Organizing Signals](#organizing-signals)
@@ -328,7 +336,7 @@ const count = signal(0);
 const doubled = signal(() => count() * 2);
 
 function App() {
-  // Parent component renders once
+  // Function body executes once per mount
   console.log("App rendered");
 
   return (
@@ -370,7 +378,7 @@ A `blox` component has two distinct parts with different execution behavior:
 
 ```tsx
 const Counter = blox<Props>((props, ref) => {
-  // 🔵 DEFINITION PHASE: Runs ONCE on mount
+  // 🔵 DEFINITION PHASE: Runs once per mount (twice in Strict Mode)
   // - Create signals
   // - Set up effects
   // - Define event handlers
@@ -381,7 +389,7 @@ const Counter = blox<Props>((props, ref) => {
     console.log("Count:", count());
   });
 
-  // 🟢 SHAPE PHASE: Returns static JSX that NEVER re-renders
+  // 🟢 SHAPE PHASE: Returns static JSX that does not re-execute the component function
   // - Only rx() expressions update
   // - Event handlers work normally
   // - No re-execution of this JSX
@@ -425,7 +433,7 @@ const Counter = blox<CounterProps>((props) => {
     console.log("Label changed:", props.label);
   });
 
-  // Static JSX - never re-renders
+  // Static JSX structure - does not re-execute the component function
   return (
     <div>
       <h3>{props.label}</h3>
@@ -444,7 +452,7 @@ const Counter = blox<CounterProps>((props) => {
 **Key differences from regular React components:**
 
 - **Definition phase runs once** - The component body executes only on mount, not on every prop change
-- **Shape is static** - The returned JSX structure never re-renders
+- **Shape is static** - The returned JSX structure does not re-execute the component function
 - **Props are signals** - `props.label` tracks the prop as a dependency when accessed
 - **Only `rx()` updates** - Reactive expressions re-execute when dependencies change
 - **Effects auto-cleanup** - Effects created inside are automatically cleaned up on unmount
@@ -510,7 +518,7 @@ const Counter = blox<{ label: string; onCountChange: (n: number) => void }>(
     // No useRef needed - everything runs once
     console.log("Component initialized ONCE");
 
-    // Static JSX - never re-renders
+    // Static JSX structure - does not re-execute the component function
     return (
       <div>
         <h3>{props.label}</h3>
@@ -529,12 +537,12 @@ const Counter = blox<{ label: string; onCountChange: (n: number) => void }>(
 
 **Benefits of `blox`:**
 
-- 🚫 **No `useCallback`** - Functions are stable by default (component body runs once)
+- 🚫 **No `useCallback`** - Functions are stable by default (component body runs once per mount (twice in Strict Mode during development))
 - 🚫 **No `useMemo`** - Computed signals handle memoization automatically
 - 🚫 **No `useEffect` complexity** - `effect()` is simpler with automatic cleanup
 - 🚫 **No `useRef` for values** - Regular variables work fine (definition phase runs once)
 - ⚡ **Fine-grained updates** - Only `rx()` expressions update, not the entire component
-- 🎯 **Less re-renders** - Component body runs once, JSX is static
+- 🎯 **Less re-renders** - Component body runs once per mount (twice in Strict Mode during development), JSX is static
 - 📝 **Less code** - No need for dependency arrays, no stale closure issues
 - 🧠 **Simpler mental model** - Reactive primitives instead of hook rules
 
@@ -620,7 +628,31 @@ const MyComponent = blox(() => {
 
 ### 6. Providers - Dependency Injection
 
-Providers inject values down the component tree without causing re-renders like React Context.
+Providers inject values
+
+> **⚠️ Important: Provider Behavior**
+>
+> Components that call `withXXX()` to access provider values do NOT automatically re-render when the provider value changes. This is fundamentally different from React Context.
+>
+> **You must use `rx()` or `effect()` to react to provider value changes:**
+>
+> ```tsx
+> // ❌ Won't update when theme changes
+> const MyComponent = blox(() => {
+>   const theme = withTheme();
+>   return <div>{theme()}</div>;
+> });
+>
+> // ✅ Correctly updates
+> const MyComponent = blox(() => {
+>   const theme = withTheme();
+>   return rx(() => <div>{theme()}</div>);
+> });
+> ```
+>
+> Think of providers as dependency injection for signals, not as React Context replacements.
+
+down the component tree without causing re-renders like React Context.
 
 ```tsx
 import { useState } from "react";
@@ -1283,6 +1315,196 @@ This is particularly useful for:
 - Coordinating UI feedback (spinners, notifications)
 - Triggering side effects in response to action state changes
 - Integrating actions with effects or other reactive primitives
+
+---
+
+## Lifecycle & Cleanup
+
+### Automatic Cleanup in `blox` Components
+
+When a `blox` component unmounts, the following are automatically cleaned up:
+
+- All `effect()` subscriptions created in the definition phase
+- All `blox.onUnmount()` callbacks
+- Signal subscriptions are NOT automatically cleaned up unless explicitly managed
+
+**Important**: Signal subscriptions created with `.on()` must be manually unsubscribed:
+
+```tsx
+// ❌ Memory leak - subscription never cleaned up
+const MyComponent = blox(() => {
+  const count = signal(0);
+  count.on((value) => console.log(value)); // Leaks!
+
+  return <div />;
+});
+
+// ✅ Correct - manual cleanup
+const MyComponent = blox(() => {
+  const count = signal(0);
+  const unsubscribe = count.on((value) => console.log(value));
+
+  blox.onUnmount(() => unsubscribe());
+
+  return <div />;
+});
+
+// ✅ Better - use effect() for automatic cleanup
+const MyComponent = blox(() => {
+  const count = signal(0);
+
+  effect(() => {
+    console.log(count()); // Auto-tracked and cleaned up
+  });
+
+  return <div />;
+});
+```
+
+### Effect Cleanup
+
+Effects return cleanup functions that run before the effect re-executes or when the component unmounts:
+
+```tsx
+effect(() => {
+  const timer = setInterval(() => console.log("tick"), 1000);
+
+  // Cleanup function - runs before re-execution or on unmount
+  return () => clearInterval(timer);
+});
+```
+
+**Effect Lifecycle:**
+
+1. Effect runs immediately upon creation
+2. When dependencies change, cleanup runs, then effect re-runs
+3. On component unmount (in `blox`), cleanup runs and effect is disposed
+
+### Signal Lifecycle
+
+- **Creation**: Signals can be created anywhere (global, component, function scope)
+- **Subscription**: Calling `.on()` creates a subscription that must be manually cleaned up
+- **Garbage Collection**: Signals are garbage collected when no references remain and all subscriptions are cleared
+- **Memory**: Each signal maintains a Set of subscribers - ensure subscriptions are cleaned up to avoid memory leaks
+
+### Global Signals
+
+Global signals (created outside components) persist for the application lifetime:
+
+```tsx
+// Global signal - lives for entire app lifetime
+const globalCount = signal(0);
+
+// Subscription cleanup is your responsibility
+const unsubscribe = globalCount.on((value) => {
+  console.log(value);
+});
+
+// Clean up when no longer needed
+unsubscribe();
+```
+
+### Cleanup Checklist
+
+- ✅ Effects in `blox` components clean up automatically
+- ✅ `blox.onUnmount()` callbacks run automatically
+- ⚠️ Manual `.on()` subscriptions need `blox.onUnmount()` cleanup
+- ⚠️ Global signal subscriptions must be manually unsubscribed
+- ⚠️ Resources (timers, listeners, connections) need explicit cleanup
+
+## Performance & Memory Considerations
+
+### Subscription Overhead
+
+Each signal maintains subscriptions via a Set data structure:
+
+- **Memory per signal**: Minimal overhead (Set + internal state)
+- **Memory per subscription**: One reference per subscriber in the Set
+- **Notification cost**: O(n) where n = number of subscribers
+
+**Best practices:**
+
+- Clean up subscriptions when no longer needed
+- Use computed signals for derived values instead of multiple manual subscriptions
+- Prefer `blox` components where cleanup is automatic
+
+### Dependency Tracking
+
+rxblox uses a dispatcher-based tracking system:
+
+- **Computed signals**: Track dependencies automatically during execution
+- **Effects**: Subscribe to all accessed signals
+- **`rx()` expressions**: Re-execute only when tracked dependencies change
+
+**Performance characteristics:**
+
+- Dependency tracking is synchronous and lightweight
+- Computed signals cache results until dependencies change
+- Updates propagate synchronously through the dependency graph
+
+### Update Batching
+
+- Signal updates trigger immediate subscriber notifications
+- React batches resulting state updates automatically (React 18+)
+- Multiple signal changes in the same event handler result in a single React render cycle
+
+### Memory Leaks Prevention
+
+**Common pitfall:**
+
+```tsx
+// ❌ Subscription leak - never cleaned up
+function SomeUtility() {
+  const count = signal(0);
+  count.on((value) => {
+    // This subscription lives forever!
+    apiCall(value);
+  });
+}
+```
+
+**Correct approach:**
+
+```tsx
+// ✅ Cleanup in blox component
+const MyComponent = blox(() => {
+  const count = signal(0);
+  const sub = count.on((value) => apiCall(value));
+
+  blox.onUnmount(() => sub());
+
+  return <div />;
+});
+
+// ✅ Better - use effect() for automatic cleanup
+const MyComponent = blox(() => {
+  const count = signal(0);
+
+  effect(() => {
+    apiCall(count()); // Auto-tracked and cleaned up
+  });
+
+  return <div />;
+});
+```
+
+### Large Lists & Virtualization
+
+For lists with thousands of items:
+
+- Use virtualization libraries (react-virtual, react-window)
+- Individual list items can be `blox` components for fine-grained updates
+- Signals work well with virtualized rendering
+
+### Profiling
+
+Use React DevTools Profiler:
+
+- `blox` components appear as memoized components
+- `rx()` updates won't show as full component renders
+- Use `signal.on()` with `console.log` for debugging signal changes
+
+---
 
 ---
 
@@ -2897,15 +3119,92 @@ MIT © 2024
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome! Please follow these guidelines to ensure quality and consistency.
 
-### Guidelines
+### Before Submitting a PR
 
-1. Write tests for new features
-2. Maintain TypeScript type safety
-3. Follow existing code style
-4. Update documentation as needed
+**Required:**
+
+1. ✅ **Tests** - Write comprehensive tests for new features
+
+   - Unit tests for new signal APIs
+   - Integration tests for React component behavior
+   - SSR compatibility tests if applicable
+
+2. ✅ **TypeScript** - Maintain full type safety
+
+   - All public APIs must be fully typed
+   - No `any` types without explicit justification
+   - Export types for public consumption
+
+3. ✅ **Documentation** - Update README.md
+
+   - Add examples for new features
+   - Update API Reference section
+   - Add JSDoc comments to public APIs
+
+4. ✅ **Code Style** - Follow existing patterns
+
+   - Run `pnpm lint` and fix all issues
+   - Follow naming conventions (signals, withXXX for providers, etc.)
+   - Keep functions small and focused
+
+5. ✅ **React Compatibility** - Test across React versions
+   - Verify behavior in Strict Mode
+   - Test SSR if your change affects rendering
+   - Verify no console warnings in development
+
+### Development Workflow
+
+```bash
+# Install dependencies
+pnpm install
+
+# Run tests in watch mode
+pnpm test
+
+# Run tests with coverage
+pnpm test:coverage
+
+# Run tests with UI
+pnpm test:ui
+
+# Build library
+pnpm build
+
+# Lint and type-check
+pnpm lint
+```
+
+### Pull Request Checklist
+
+- [ ] Tests added/updated and passing
+- [ ] Types are correct and exported
+- [ ] Documentation updated (README + JSDoc)
+- [ ] No console warnings in development
+- [ ] Strict Mode compatible
+- [ ] SSR compatible (if applicable)
+- [ ] Examples added for new features
+- [ ] Backward compatible (or breaking change noted)
+
+### Reporting Issues
+
+When reporting bugs, please include:
+
+- rxblox version
+- React version
+- Minimal reproduction (CodeSandbox or repo)
+- Expected vs actual behavior
+- Browser/environment details
+
+### License
+
+By contributing, you agree that your contributions will be licensed under the MIT License.
 
 ---
+
+Made with ❤️ for the React community
+
+## MIT © 2025
 
 Made with ❤️ for the React community

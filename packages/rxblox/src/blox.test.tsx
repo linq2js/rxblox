@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, waitFor } from "@testing-library/react";
-import { act, createRef } from "react";
+import React, { act, createRef } from "react";
 import { blox, Ref } from "./index";
 import { signal } from "./signal";
 import { effect } from "./effect";
@@ -514,6 +514,159 @@ describe("blox", () => {
       const { unmount: unmountComponent } = render(<Component value={1} />);
       unmountComponent();
       expect(cleanupFn).toHaveBeenCalled();
+    });
+  });
+
+  describe("React Strict Mode", () => {
+    it("should handle double-invocation in Strict Mode", () => {
+      const initSpy = vi.fn();
+      const renderSpy = vi.fn();
+
+      const Component = blox(() => {
+        initSpy(); // Definition phase
+        const count = signal(0);
+
+        return rx(() => {
+          renderSpy();
+          return <div>{count()}</div>;
+        });
+      });
+
+      const { container } = render(
+        <React.StrictMode>
+          <Component />
+        </React.StrictMode>
+      );
+
+      // In Strict Mode, definition phase runs twice
+      expect(initSpy).toHaveBeenCalledTimes(2);
+      // But render should work correctly
+      expect(container.textContent).toBe("0");
+    });
+
+    it("should handle effects correctly in Strict Mode", () => {
+      const effectSpy = vi.fn();
+      const cleanupSpy = vi.fn();
+
+      const Component = blox(() => {
+        const count = signal(0);
+
+        effect(() => {
+          effectSpy(count());
+          return cleanupSpy;
+        });
+
+        return <div>{rx(count)}</div>;
+      });
+
+      render(
+        <React.StrictMode>
+          <Component />
+        </React.StrictMode>
+      );
+
+      // In Strict Mode: effect runs, cleanup runs, effect runs again
+      expect(effectSpy).toHaveBeenCalled();
+      expect(cleanupSpy).toHaveBeenCalled();
+      // Effect should have run at least twice (initial + re-run after cleanup)
+      expect(effectSpy.mock.calls.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it("should maintain signal state despite double-invocation", () => {
+      const Component = blox(() => {
+        const count = signal(0);
+        const increment = () => count.set(count() + 1);
+
+        return (
+          <div>
+            <span data-testid="count">{rx(count)}</span>
+            <button onClick={increment}>+</button>
+          </div>
+        );
+      });
+
+      const { getByTestId, getByRole } = render(
+        <React.StrictMode>
+          <Component />
+        </React.StrictMode>
+      );
+
+      expect(getByTestId("count").textContent).toBe("0");
+
+      // Signal updates should work correctly
+      act(() => {
+        getByRole("button").click();
+      });
+
+      expect(getByTestId("count").textContent).toBe("1");
+    });
+
+    it("should handle signal subscriptions correctly in Strict Mode", async () => {
+      const externalSignal = signal(0);
+
+      const Component = blox(() => {
+        const unsubscribe = externalSignal.on(() => {
+          // Subscription callback
+        });
+        blox.onUnmount(unsubscribe);
+        return <div>{rx(externalSignal)}</div>;
+      });
+
+      const { container } = render(
+        <React.StrictMode>
+          <Component />
+        </React.StrictMode>
+      );
+
+      // Verify component is mounted and rendering
+      expect(container.textContent).toBe("0");
+
+      // Update signal while mounted - should work
+      act(() => {
+        externalSignal.set(1);
+      });
+
+      await waitFor(() => {
+        expect(container.textContent).toBe("1");
+      });
+
+      // Test that multiple updates work
+      act(() => {
+        externalSignal.set(2);
+      });
+
+      await waitFor(() => {
+        expect(container.textContent).toBe("2");
+      });
+    });
+
+    it("should handle props signal correctly in Strict Mode", () => {
+      const Component = blox<{ value: number }>((props) => {
+        const effectSpy = vi.fn();
+
+        effect(() => {
+          effectSpy(props.value);
+        });
+
+        return <div>{rx(() => props.value)}</div>;
+      });
+
+      const { container, rerender } = render(
+        <React.StrictMode>
+          <Component value={1} />
+        </React.StrictMode>
+      );
+
+      expect(container.textContent).toBe("1");
+
+      // Update props
+      rerender(
+        <React.StrictMode>
+          <Component value={2} />
+        </React.StrictMode>
+      );
+
+      expect(container.textContent).toBe("2");
     });
   });
 });
