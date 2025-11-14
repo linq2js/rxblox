@@ -58,14 +58,14 @@ import { disposableToken } from "./disposableDispatcher";
  * const Timer = blox<{}, { start: () => void; stop: () => void }>((_props, handle) => {
  *   let interval: number | undefined;
  *
- *   handle.current = {
+ *   handle({
  *     start: () => {
  *       interval = setInterval(() => console.log('tick'), 1000);
  *     },
  *     stop: () => {
  *       if (interval) clearInterval(interval);
  *     }
- *   };
+ *   });
  *
  *   return <div>Timer</div>;
  * });
@@ -98,7 +98,7 @@ export function blox<
    */
   const Block = (
     props: PropsWithoutRef<TProps>,
-    forwardedRef: ForwardedRef<TRef | undefined>
+    forwardedRef: ForwardedRef<TRef>
   ) => {
     const providerResolver = useProviderResolver();
     const [eventDispatcher] = useState(() => {
@@ -134,16 +134,18 @@ export function blox<
      * Created once per component instance and reused across renders.
      */
     const [ref] = useState(() => {
-      let value: TRef | undefined;
+      let value: TRef;
 
       return {
-        get current() {
+        get() {
           return value;
         },
-        set current(v: TRef | undefined) {
+        set(v: TRef) {
           if (value !== v) {
             value = v;
-            rerender();
+            if (!rerender.rendering()) {
+              rerender();
+            }
           }
         },
       };
@@ -290,7 +292,7 @@ export function blox<
           disposableToken(eventDispatcher.emitters.unmount),
         ],
         () => {
-          return builder(propsProxy as TProps, ref);
+          return builder(propsProxy as TProps, ref.set);
         }
       );
     });
@@ -327,7 +329,7 @@ export function blox<
      * Exposes the ref.current value via the forwarded ref.
      * Updates whenever ref.current changes.
      */
-    useImperativeHandle(forwardedRef, () => ref.current, [ref.current]);
+    useImperativeHandle(forwardedRef, ref.get, [ref.get()]);
 
     eventDispatcher.emitRender();
 

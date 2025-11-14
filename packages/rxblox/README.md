@@ -1678,10 +1678,10 @@ const CustomInput = blox<{ placeholder: string }, InputHandle>((props, ref) => {
   const value = signal("");
 
   // Expose methods via ref
-  ref.current = {
+  ref({
     focus: () => inputRef.current?.focus(),
     clear: () => value.set(""),
-  };
+  });
 
   return rx(() => (
     <input
@@ -2547,9 +2547,9 @@ interface CounterRef {
 const MyComponent = blox<Props, CounterRef>((props, ref) => {
   const count = signal(0);
 
-  ref.current = {
+  ref({
     reset: () => count.set(0),
-  };
+  });
 
   return <div>{rx(count)}</div>;
 });

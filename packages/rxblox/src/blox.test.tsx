@@ -128,33 +128,35 @@ describe("blox", () => {
       });
       render(<Component />);
       expect(receivedHandle).toBeDefined();
-      expect(receivedHandle?.current).toBeUndefined();
+      expect(typeof receivedHandle).toBe("function");
     });
 
     it("should allow setting handle value during render", () => {
+      const ref = createRef<number>();
       const Component = blox<{}, number>((_props, handle) => {
-        if (handle.current === undefined) {
-          handle.current = 42;
-        }
-        return <div>{handle.current}</div>;
+        handle(42);
+        return <div>42</div>;
       });
-      const { container } = render(<Component />);
-      expect(container.textContent).toBe("42");
+      render(<Component ref={ref} />);
+      expect(ref.current).toBe(42);
     });
 
-    it("should render handle current value", () => {
-      const Component = blox<{}, number>((_props, handle) => {
-        return <div>{handle.current ?? "empty"}</div>;
+    it("should work without setting handle value", () => {
+      const ref = createRef<number>();
+      const Component = blox<{}, number>((_props, _handle) => {
+        // Don't set handle value
+        return <div>empty</div>;
       });
-      const { container } = render(<Component />);
+      const { container } = render(<Component ref={ref} />);
       expect(container.textContent).toBe("empty");
+      expect(ref.current).toBeUndefined();
     });
 
     it("should expose handle via ref", () => {
       const ref = createRef<number>();
       const Component = blox<{}, number>((_props, handle) => {
-        handle.current = 100;
-        return <div>{handle.current}</div>;
+        handle(100);
+        return <div>100</div>;
       });
       render(<Component ref={ref} />);
       expect(ref.current).toBe(100);
@@ -163,8 +165,8 @@ describe("blox", () => {
     it("should update ref when handle is set during render", () => {
       const ref = createRef<string>();
       const Component = blox<{}, string>((_props, handle) => {
-        handle.current = "initial";
-        return <div>{handle.current}</div>;
+        handle("initial");
+        return <div>initial</div>;
       });
       const { container } = render(<Component ref={ref} />);
       expect(ref.current).toBe("initial");
@@ -431,12 +433,15 @@ describe("blox", () => {
       expect(container.textContent).toBe("deep");
     });
 
-    it("should handle handle with undefined initial value", () => {
-      const Component = blox<{}, string>((_props, handle) => {
-        return <div>{handle.current ?? "undefined"}</div>;
+    it("should handle handle without setting value", () => {
+      const ref = createRef<string>();
+      const Component = blox<{}, string>((_props, _handle) => {
+        // Don't call handle
+        return <div>undefined</div>;
       });
-      const { container } = render(<Component />);
+      const { container } = render(<Component ref={ref} />);
       expect(container.textContent).toBe("undefined");
+      expect(ref.current).toBeUndefined();
     });
   });
 
@@ -444,7 +449,7 @@ describe("blox", () => {
     it("should forward ref correctly", () => {
       const ref = createRef<number>();
       const Component = blox<{}, number>((_props, handle) => {
-        handle.current = 42;
+        handle(42);
         return <div>Test</div>;
       });
       render(<Component ref={ref} />);
@@ -454,8 +459,8 @@ describe("blox", () => {
     it("should update ref when handle is set during render", () => {
       const ref = createRef<string>();
       const Component = blox<{}, string>((_props, handle) => {
-        handle.current = "initial value";
-        return <div>{handle.current}</div>;
+        handle("initial value");
+        return <div>initial value</div>;
       });
       const { container } = render(<Component ref={ref} />);
       expect(ref.current).toBe("initial value");

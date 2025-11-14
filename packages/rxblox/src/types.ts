@@ -150,10 +150,10 @@ export type Effect = {
  */
 export type Ref<T> = {
   /**
-   * The current value of the ref.
-   * Can be set to expose methods or state to parent components via ref.
+   * Sets the current value of the ref.
+   * @param value - The value to set
    */
-  current: T | undefined;
+  (value: T): void;
 };
 
 /**
