@@ -7,7 +7,7 @@ import {
   memo,
   useLayoutEffect,
   useMemo,
-  useRef,
+  useState,
 } from "react";
 import { signalDispatcher, signalToken } from "./signalDispatcher";
 import { emitter } from "./emitter";
@@ -54,13 +54,13 @@ function isDiff<T>(a: Set<T>, b: Set<T>): boolean {
  * The component is memoized to prevent unnecessary re-renders when props don't change.
  */
 export const Reactive = memo(function Reactive(props: { exp: () => unknown }) {
-  // Token ref used to trigger effect re-run when signal dependencies change
-  // Changing the object reference causes useLayoutEffect to re-run
-  const recomputeTokenRef = useRef({});
+  // Track when signal dependencies change to re-run effect
+  const [recomputeToken, setRecomputeToken] = useState({});
+
   // State used to trigger re-renders and track errors
   const rerender = useRerender<{
     error?: unknown;
-  }>({ debounce: 0 });
+  }>();
 
   // Signal dispatcher is stable across renders - created once and reused
   // We use useMemo instead of useState to pass required parameters
@@ -83,7 +83,7 @@ export const Reactive = memo(function Reactive(props: { exp: () => unknown }) {
    *
    * Re-runs when:
    * - dispatcher changes (shouldn't happen)
-   * - recomputeTokenRef.current changes (when signal dependencies change)
+   * - recomputeToken changes (when signal dependencies change)
    */
   useLayoutEffect(() => {
     const onCleanup = emitter();
@@ -109,7 +109,7 @@ export const Reactive = memo(function Reactive(props: { exp: () => unknown }) {
       rerender.cancel();
       onCleanup.emit(undefined);
     };
-  }, [dispatcher, recomputeTokenRef.current, rerender]);
+  }, [dispatcher, recomputeToken, rerender]);
 
   /**
    * Computes the expression result and tracks signal dependencies.
@@ -118,9 +118,9 @@ export const Reactive = memo(function Reactive(props: { exp: () => unknown }) {
    * 2. Clears the dispatcher to track new signals
    * 3. Executes the expression (which may access signals)
    * 4. Compares old and new signal sets
-   * 5. Updates recomputeTokenRef if signals changed (to trigger effect re-run)
+   * 5. Updates recomputeToken if signals changed (to trigger effect re-run)
    *
-   * The result is memoized based on dispatcher, props.exp, and version
+   * The result is memoized based on dispatcher, props.exp, and rerender.data
    * to avoid unnecessary recomputations.
    */
   const result = useMemo(() => {
@@ -133,9 +133,9 @@ export const Reactive = memo(function Reactive(props: { exp: () => unknown }) {
       const nextSignals = new Set(dispatcher.signals);
 
       // Update subscriptions if signal dependencies changed
-      // Changing the ref object triggers useLayoutEffect to re-run
+      // Changing the recomputeToken triggers useLayoutEffect to re-run
       if (isDiff(prevSignals, nextSignals)) {
-        recomputeTokenRef.current = {};
+        setRecomputeToken({});
       }
     }
   }, [dispatcher, props.exp, rerender.data]);

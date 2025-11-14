@@ -121,7 +121,7 @@ export function blox<
      * State used to trigger re-renders when ref.current changes.
      * The state value itself is not used, only the setter to trigger updates.
      */
-    const rerender = useRerender({ debounce: 0 });
+    const rerender = useRerender();
 
     /**
      * Ref object that provides imperative access to component state.
@@ -143,9 +143,7 @@ export function blox<
         set current(v: TRef | undefined) {
           if (value !== v) {
             value = v;
-            if (!rerender.rendering()) {
-              rerender();
-            }
+            rerender();
           }
         },
       };

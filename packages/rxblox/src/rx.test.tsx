@@ -544,36 +544,6 @@ describe("rx", () => {
       // But the signal listener might still be called
       // The important thing is the component doesn't try to update
     });
-
-    it("should cancel pending debounced updates when unmounted", async () => {
-      const s = signal(0);
-      let renderCount = 0;
-
-      const { container, unmount } = render(
-        rx(() => {
-          renderCount++;
-          return s();
-        })
-      );
-
-      const initialRenderCount = renderCount;
-      expect(container.textContent).toBe("0");
-
-      // Trigger an update
-      act(() => {
-        s.set(1);
-      });
-
-      // Immediately unmount before debounced update executes
-      unmount();
-
-      // Wait for any pending updates
-      await new Promise((resolve) => setTimeout(resolve, 50));
-
-      // Should not have rendered again after unmount
-      // The debounced update should have been cancelled
-      expect(renderCount).toBe(initialRenderCount);
-    });
   });
 
   describe("signal dependency changes", () => {

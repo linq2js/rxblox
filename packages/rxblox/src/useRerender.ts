@@ -2,7 +2,7 @@ import { debounce } from "lodash";
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 export type RerenderOptions = {
-  debounce?: number;
+  debounce?: number | "microtask";
 };
 
 export type RerenderFunction<TData = void> = {
@@ -53,6 +53,22 @@ export function useRerender<TData = void>(
       };
     }
 
+    if (options.debounce === "microtask") {
+      let token = {};
+      return {
+        call(data?: TData) {
+          const currentToken = {};
+          token = currentToken;
+          Promise.resolve().then(() => {
+            if (currentToken === token) {
+              rerenderWrapper(data);
+            }
+          });
+        },
+        cancel: () => {},
+        flush: () => {},
+      };
+    }
     return {
       call: rerenderWrapper,
       cancel: () => {},
