@@ -1,5 +1,13 @@
 import { FC, ReactNode } from "react";
 
+export type SignalTrackFunction = <
+  TSignals extends Record<string, Signal<unknown>>
+>(
+  signals: TSignals
+) => {
+  [k in keyof TSignals]: TSignals[k] extends Signal<infer T> ? T : never;
+};
+
 /**
  * Type definitions for rxblox - a reactive state management library for React.
  *
@@ -212,4 +220,15 @@ export type SignalDispatcher = {
    * Used to reset the dispatcher before tracking a new set of dependencies.
    */
   clear(): void;
+
+  /**
+   * Creates a proxy for explicit dependency tracking.
+   * The proxy intercepts property access and:
+   * 1. Registers the signal as a dependency (if not already tracked)
+   * 2. Subscribes to the signal for future updates
+   * 3. Returns the signal's current value
+   *
+   * This enables lazy tracking - only accessed signals become dependencies.
+   */
+  track: SignalTrackFunction;
 };

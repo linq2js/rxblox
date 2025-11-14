@@ -2,7 +2,11 @@ import { withDispatchers } from "./dispatcher";
 import { addEffect } from "./effectDispatcher";
 import { emitter } from "./emitter";
 import { signalDispatcher, signalToken } from "./signalDispatcher";
-import { Effect } from "./types";
+import { Effect, SignalTrackFunction } from "./types";
+
+export type EffectContext = {
+  track: SignalTrackFunction;
+};
 
 /**
  * Creates a reactive effect that tracks signals and re-runs when dependencies change.
@@ -46,7 +50,9 @@ import { Effect } from "./types";
  * });
  * ```
  */
-export function effect(fn: () => void | VoidFunction): Effect {
+export function effect(
+  fn: (context: EffectContext) => void | Promise<void> | VoidFunction
+): Effect {
   // Emitter for managing cleanup functions (effect cleanup and signal unsubscribe functions)
   // Uses void type since cleanup functions don't take parameters
   const onCleanup = emitter<void>();
@@ -68,16 +74,13 @@ export function effect(fn: () => void | VoidFunction): Effect {
     onCleanup.clear();
 
     // Track which signals are accessed during execution
-    const dispatcher = signalDispatcher();
-    const result = withDispatchers([signalToken(dispatcher)], fn);
+    const dispatcher = signalDispatcher(run, onCleanup);
+    const result = withDispatchers([signalToken(dispatcher)], () =>
+      fn({ track: dispatcher.track })
+    );
     // Register the effect's cleanup function if one was returned
     if (typeof result === "function") {
       onCleanup.add(result);
-    }
-    // Subscribe to all signals that were accessed and register their unsubscribe functions
-    const signals = dispatcher.signals;
-    for (const signal of signals) {
-      onCleanup.add(signal.on(run));
     }
   };
 
@@ -104,16 +107,13 @@ export function effect(fn: () => void | VoidFunction): Effect {
       cleanup();
 
       // Track which signals are accessed during execution
-      const dispatcher = signalDispatcher();
-      const result = withDispatchers([signalToken(dispatcher)], fn);
+      const dispatcher = signalDispatcher(run, onCleanup);
+      const result = withDispatchers([signalToken(dispatcher)], () =>
+        fn({ track: dispatcher.track })
+      );
       // Register the effect's cleanup function if one was returned
       if (typeof result === "function") {
         onCleanup.add(result);
-      }
-      // Subscribe to all signals that were accessed and register their unsubscribe functions
-      const signals = dispatcher.signals;
-      for (const signal of signals) {
-        onCleanup.add(signal.on(run));
       }
       return cleanup;
     },

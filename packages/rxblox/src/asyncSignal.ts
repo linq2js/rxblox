@@ -97,7 +97,7 @@ export type AsyncSignalFunction<T> = (
  * if (loadable.status === "loading") {
  *   console.log("Loading...");
  * } else if (loadable.status === "success") {
- *   console.log("User:", loadable.data);
+ *   console.log("User:", loadable.value);
  * }
  *
  * // ✅ Using track() for explicit dependency tracking (RECOMMENDED)

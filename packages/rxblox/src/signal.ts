@@ -126,34 +126,9 @@ export function signal<T>(
 
     if (typeof value === "function") {
       // This is a computed signal - track dependencies
-      const dispatcher = signalDispatcher();
+      const dispatcher = signalDispatcher(recompute, onCleanup);
       const context: ComputedSignalContext = {
-        /**
-         * Creates a proxy for explicit dependency tracking.
-         * The proxy intercepts property access and:
-         * 1. Registers the signal as a dependency (if not already tracked)
-         * 2. Subscribes to the signal for future updates
-         * 3. Returns the signal's current value
-         *
-         * This enables lazy tracking - only accessed signals become dependencies.
-         */
-        track: <TSignals extends Record<string, Signal<unknown>>>(
-          signals: TSignals
-        ) => {
-          return new Proxy(signals, {
-            get(_target, prop) {
-              const s = signals[prop as keyof TSignals];
-
-              // Add signal to dispatcher and subscribe if not already tracked
-              if (dispatcher.add(s)) {
-                onCleanup.add(s.on(recompute));
-              }
-
-              // Return the signal's current value
-              return s();
-            },
-          }) as any;
-        },
+        track: dispatcher.track,
       };
       // Execute the computation function and track which signals it accesses
       // The dispatcher tracks implicit accesses (signal calls)
@@ -163,10 +138,6 @@ export function signal<T>(
           (value as (context: ComputedSignalContext) => T)(context)
         ),
       };
-      // Subscribe to all implicitly tracked signals
-      for (const signal of dispatcher.signals) {
-        onCleanup.add(signal.on(recompute));
-      }
     } else {
       // Static value - just cache it
       current = { value };

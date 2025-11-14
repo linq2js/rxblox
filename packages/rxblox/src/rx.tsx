@@ -55,8 +55,6 @@ function isDiff<T>(a: Set<T>, b: Set<T>): boolean {
  * The component is memoized to prevent unnecessary re-renders when props don't change.
  */
 export const Reactive = memo(function Reactive(props: { exp: () => unknown }) {
-  // Signal dispatcher is stable across renders - created once and reused
-  const [dispatcher] = useState(signalDispatcher);
   // Token ref used to trigger effect re-run when signal dependencies change
   // Changing the object reference causes useLayoutEffect to re-run
   const recomputeTokenRef = useRef({});
@@ -64,6 +62,12 @@ export const Reactive = memo(function Reactive(props: { exp: () => unknown }) {
   const rerender = useRerender<{
     error?: unknown;
   }>({ debounce: 0 });
+
+  // Signal dispatcher is stable across renders - created once and reused
+  // We use useMemo instead of useState to pass required parameters
+  const dispatcher = useMemo(() => {
+    return signalDispatcher();
+  }, []);
 
   // Re-throw errors so ErrorBoundary can catch them
   if (rerender.data?.error) {
