@@ -6,6 +6,7 @@ import { render, waitFor } from "@testing-library/react";
 import { act } from "react";
 import { effect } from "./effect";
 import { Signal } from "./types";
+import { signal } from "./signal";
 
 describe("provider", () => {
   describe("basic functionality", () => {
@@ -932,4 +933,297 @@ describe("provider", () => {
   // Key characteristic: Providers return signals, and only rx() or effect()
   // that consume the signal will be reactive. Child components themselves
   // will NOT automatically re-render when provider value changes.
+
+  describe("Signal<T> as provider value", () => {
+    it("should accept Signal<T> as provider value", () => {
+      const [withTheme, ThemeProvider] = provider(
+        "theme",
+        "light" as "light" | "dark"
+      );
+
+      const Child = blox(() => {
+        const theme = withTheme();
+        return <div>{rx(() => theme())}</div>;
+      });
+
+      const themeSignal = signal<"light" | "dark">("light");
+
+      const { container } = render(
+        <ThemeProvider value={themeSignal}>
+          <Child />
+        </ThemeProvider>
+      );
+
+      expect(container.textContent).toBe("light");
+    });
+
+    it("should update consumer when source signal changes", async () => {
+      const [withCount, CountProvider] = provider("count", 0);
+
+      const Child = blox(() => {
+        const count = withCount();
+        return <div>{rx(() => count())}</div>;
+      });
+
+      const countSignal = signal(0);
+
+      const { container } = render(
+        <CountProvider value={countSignal}>
+          <Child />
+        </CountProvider>
+      );
+
+      expect(container.textContent).toBe("0");
+
+      await act(async () => {
+        countSignal.set(5);
+      });
+      await waitFor(() => expect(container.textContent).toBe("5"));
+
+      expect(container.textContent).toBe("5");
+
+      await act(async () => {
+        countSignal.set(10);
+      });
+      await waitFor(() => expect(container.textContent).toBe("10"));
+
+      expect(container.textContent).toBe("10");
+    });
+
+    it("should work with computed signals", async () => {
+      const [withDoubled, DoubledProvider] = provider("doubled", 0);
+
+      const Child = blox(() => {
+        const doubled = withDoubled();
+        return <div>{rx(() => doubled())}</div>;
+      });
+
+      const count = signal(5);
+      const doubled = signal(() => count() * 2);
+
+      const { container } = render(
+        <DoubledProvider value={doubled}>
+          <Child />
+        </DoubledProvider>
+      );
+
+      expect(container.textContent).toBe("10");
+
+      await act(async () => {
+        count.set(7);
+      });
+      await waitFor(() => expect(container.textContent).toBe("14"));
+
+      expect(container.textContent).toBe("14");
+    });
+
+    it("should trigger effects when signal changes", async () => {
+      const [withValue, ValueProvider] = provider("value", 0);
+      const effectSpy = vi.fn();
+
+      const Child = blox(() => {
+        const value = withValue();
+        effect(() => {
+          effectSpy(value());
+        });
+        return <div>Child</div>;
+      });
+
+      const valueSignal = signal(1);
+
+      render(
+        <ValueProvider value={valueSignal}>
+          <Child />
+        </ValueProvider>
+      );
+
+      // Effect runs immediately
+      await waitFor(() => expect(effectSpy).toHaveBeenCalledWith(1));
+      expect(effectSpy).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        valueSignal.set(2);
+        await waitFor(() => expect(effectSpy).toHaveBeenCalledWith(2));
+      });
+
+      expect(effectSpy).toHaveBeenCalledTimes(2);
+
+      await act(async () => {
+        valueSignal.set(3);
+        await waitFor(() => expect(effectSpy).toHaveBeenCalledWith(3));
+      });
+
+      expect(effectSpy).toHaveBeenCalledTimes(3);
+    });
+
+    it("should handle nested providers using signals", async () => {
+      const [withOuter, OuterProvider] = provider("outer", "");
+      const [withInner, InnerProvider] = provider("inner", 0);
+
+      const Child = blox(() => {
+        const outer = withOuter();
+        const inner = withInner();
+        return <div>{rx(() => `${outer()}-${inner()}`)}</div>;
+      });
+
+      const outerSignal = signal("A");
+      const innerSignal = signal(1);
+
+      const { container } = render(
+        <OuterProvider value={outerSignal}>
+          <InnerProvider value={innerSignal}>
+            <Child />
+          </InnerProvider>
+        </OuterProvider>
+      );
+
+      expect(container.textContent).toBe("A-1");
+
+      await act(async () => {
+        outerSignal.set("B");
+      });
+      await waitFor(() => expect(container.textContent).toBe("B-1"));
+
+      await act(async () => {
+        innerSignal.set(2);
+      });
+      await waitFor(() => expect(container.textContent).toBe("B-2"));
+
+      await act(async () => {
+        outerSignal.set("C");
+        innerSignal.set(3);
+      });
+      await waitFor(() => expect(container.textContent).toBe("C-3"));
+    });
+
+    it("should cleanup signal subscription on unmount", async () => {
+      const [withValue, ValueProvider] = provider("value", 0);
+      const renderSpy = vi.fn();
+
+      const Child = blox(() => {
+        const value = withValue();
+        return (
+          <div>
+            {rx(() => {
+              renderSpy();
+              return value();
+            })}
+          </div>
+        );
+      });
+
+      const valueSignal = signal(0);
+
+      const { unmount } = render(
+        <ValueProvider value={valueSignal}>
+          <Child />
+        </ValueProvider>
+      );
+
+      // Initial render
+      await waitFor(() => expect(renderSpy).toHaveBeenCalledTimes(1));
+
+      await act(async () => {
+        valueSignal.set(1);
+      });
+
+      await waitFor(() => expect(renderSpy).toHaveBeenCalledTimes(2));
+
+      renderSpy.mockClear();
+
+      // Unmount
+      unmount();
+
+      // Signal changes should not trigger renders after unmount
+      await act(async () => {
+        valueSignal.set(2);
+        valueSignal.set(3);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      });
+
+      expect(renderSpy).not.toHaveBeenCalled();
+    });
+
+    it("should respect custom equals function with signals", async () => {
+      const [withUser, UserProvider] = provider(
+        "user",
+        { id: 0, name: "" },
+        { equals: (a, b) => a.id === b.id }
+      );
+      const renderSpy = vi.fn();
+
+      const Child = blox(() => {
+        const user = withUser();
+        return (
+          <div>
+            {rx(() => {
+              renderSpy();
+              return `${user().id}-${user().name}`;
+            })}
+          </div>
+        );
+      });
+
+      const userSignal = signal({ id: 1, name: "John" });
+
+      const { container } = render(
+        <UserProvider value={userSignal}>
+          <Child />
+        </UserProvider>
+      );
+
+      await waitFor(() => expect(container.textContent).toBe("1-John"));
+      expect(renderSpy).toHaveBeenCalledTimes(1);
+
+      // Same id, different name - should not trigger update
+      await act(async () => {
+        userSignal.set({ id: 1, name: "Jane" });
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      });
+
+      expect(renderSpy).toHaveBeenCalledTimes(1);
+      expect(container.textContent).toBe("1-John");
+
+      // Different id - should trigger update
+      await act(async () => {
+        userSignal.set({ id: 2, name: "Alice" });
+      });
+
+      await waitFor(() => expect(container.textContent).toBe("2-Alice"));
+
+      expect(renderSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it("should lazily create internal signal only when accessed", () => {
+      const [withValue, ValueProvider] = provider("value", 0);
+      const valueSignal = signal(42);
+
+      // Render provider but don't access the signal yet
+      render(
+        <ValueProvider value={valueSignal}>
+          <div>No consumer</div>
+        </ValueProvider>
+      );
+
+      // Change signal value before anyone accesses it
+      act(() => {
+        valueSignal.set(100);
+      });
+
+      // Now add a consumer - it should see the latest value (100)
+      const Child = blox(() => {
+        const value = withValue();
+        return <div>{rx(() => value())}</div>;
+      });
+
+      const { container } = render(
+        <ValueProvider value={valueSignal}>
+          <Child />
+        </ValueProvider>
+      );
+
+      // Should see 100, not 42, proving signal was created lazily
+      expect(container.textContent).toBe("100");
+    });
+  });
 });

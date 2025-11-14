@@ -222,7 +222,7 @@ describe("action", () => {
     it("should ignore results from stale calls", async () => {
       let resolvers: Array<(value: string) => void> = [];
 
-      const fetchData = action(async (id: number) => {
+      const fetchData = action(async (_id: number) => {
         return new Promise<string>((resolve) => {
           resolvers.push((value) => resolve(value));
         });
@@ -248,7 +248,7 @@ describe("action", () => {
         reject: (error: Error) => void;
       }> = [];
 
-      const fetchData = action(async (id: number) => {
+      const fetchData = action(async (_id: number) => {
         return new Promise<string>((resolve, reject) => {
           resolvers.push({ resolve, reject });
         });
@@ -291,6 +291,298 @@ describe("action", () => {
       const result = await concat("hello", "world", "test");
       expect(result).toBe("hello-world-test");
       expect(concat.result).toBe("hello-world-test");
+    });
+  });
+
+  describe("subscription via .on()", () => {
+    it("should subscribe to sync action result changes", () => {
+      const increment = action((x: number) => x + 1);
+      const spy = vi.fn();
+
+      const unsubscribe = increment.on(spy);
+
+      increment(5);
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: "success",
+          value: 6,
+          error: undefined,
+          loading: false,
+        })
+      );
+
+      increment(10);
+      expect(spy).toHaveBeenCalledTimes(2);
+      expect(spy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: "success",
+          value: 11,
+        })
+      );
+
+      unsubscribe();
+    });
+
+    it("should subscribe to async action result changes", async () => {
+      const fetchData = action(async (id: number) => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        return `data-${id}`;
+      });
+      const spy = vi.fn();
+
+      const unsubscribe = fetchData.on(spy);
+
+      const promise = fetchData(123);
+
+      // Should be called with loading state
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: "loading",
+          value: undefined,
+          error: undefined,
+          loading: true,
+        })
+      );
+
+      await promise;
+
+      // Should be called with success state
+      expect(spy).toHaveBeenCalledTimes(2);
+      expect(spy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: "success",
+          value: "data-123",
+          error: undefined,
+          loading: false,
+        })
+      );
+
+      unsubscribe();
+    });
+
+    it("should subscribe to action errors", async () => {
+      const throwError = action(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        throw new Error("test error");
+      });
+      const spy = vi.fn();
+
+      const unsubscribe = throwError.on(spy);
+
+      const promise = throwError();
+
+      // Loading state
+      expect(spy).toHaveBeenCalledTimes(1);
+
+      await expect(promise).rejects.toThrow("test error");
+
+      // Error state
+      expect(spy).toHaveBeenCalledTimes(2);
+      expect(spy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: "error",
+          value: undefined,
+          loading: false,
+          error: expect.any(Error),
+        })
+      );
+
+      unsubscribe();
+    });
+
+    it("should support multiple subscribers", () => {
+      const increment = action((x: number) => x + 1);
+      const spy1 = vi.fn();
+      const spy2 = vi.fn();
+      const spy3 = vi.fn();
+
+      const unsub1 = increment.on(spy1);
+      const unsub2 = increment.on(spy2);
+      const unsub3 = increment.on(spy3);
+
+      increment(5);
+
+      expect(spy1).toHaveBeenCalledTimes(1);
+      expect(spy2).toHaveBeenCalledTimes(1);
+      expect(spy3).toHaveBeenCalledTimes(1);
+
+      unsub1();
+      unsub2();
+      unsub3();
+    });
+
+    it("should not notify after unsubscribe", () => {
+      const increment = action((x: number) => x + 1);
+      const spy = vi.fn();
+
+      const unsubscribe = increment.on(spy);
+
+      increment(5);
+      expect(spy).toHaveBeenCalledTimes(1);
+
+      unsubscribe();
+
+      increment(10);
+      increment(15);
+      // Should still be 1, not 3
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+
+    it("should notify on reset", () => {
+      const fetchData = action(async (id: number) => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        return `data-${id}`;
+      });
+      const spy = vi.fn();
+
+      const unsubscribe = fetchData.on(spy);
+
+      fetchData(123);
+      expect(spy).toHaveBeenCalledTimes(1); // loading
+
+      fetchData.reset();
+      // reset() calls result.reset(), which should trigger subscribers with undefined
+      expect(spy).toHaveBeenCalledWith(undefined);
+
+      unsubscribe();
+    });
+
+    it("should handle sync errors in subscription", () => {
+      const throwError = action(() => {
+        throw new Error("sync error");
+      });
+      const spy = vi.fn();
+
+      const unsubscribe = throwError.on(spy);
+
+      expect(() => throwError()).toThrow("sync error");
+
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: "error",
+          error: expect.any(Error),
+        })
+      );
+
+      unsubscribe();
+    });
+
+    it("should not notify subscribers for stale async calls", async () => {
+      let resolvers: Array<(value: string) => void> = [];
+
+      const fetchData = action(async (_id: number) => {
+        return new Promise<string>((resolve) => {
+          resolvers.push((value) => resolve(value));
+        });
+      });
+
+      const spy = vi.fn();
+      const unsubscribe = fetchData.on(spy);
+
+      const promise1 = fetchData(1); // loading notification
+      const promise2 = fetchData(2); // loading notification
+
+      expect(spy).toHaveBeenCalledTimes(2); // Two loading notifications
+
+      // Resolve the second call first
+      resolvers[1]("data-2");
+      await promise2;
+
+      expect(spy).toHaveBeenCalledTimes(3); // One success notification for data-2
+
+      // Resolve the first call (should not notify subscribers)
+      resolvers[0]("data-1");
+      await promise1;
+
+      // Should still be 3, not 4 (stale result ignored)
+      expect(spy).toHaveBeenCalledTimes(3);
+
+      unsubscribe();
+    });
+
+    it("should work with both .on() subscription and event callbacks", async () => {
+      const successSpy = vi.fn();
+      const subscriptionSpy = vi.fn();
+
+      const fetchData = action(
+        async (id: number) => {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          return `data-${id}`;
+        },
+        { on: { success: successSpy } }
+      );
+
+      const unsubscribe = fetchData.on(subscriptionSpy);
+
+      await fetchData(123);
+
+      // Event callback should be called
+      expect(successSpy).toHaveBeenCalledWith("data-123");
+
+      // Subscription should be called twice (loading + success)
+      expect(subscriptionSpy).toHaveBeenCalledTimes(2);
+      expect(subscriptionSpy).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({ status: "loading" })
+      );
+      expect(subscriptionSpy).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ status: "success", value: "data-123" })
+      );
+
+      unsubscribe();
+    });
+
+    it("should provide loadable with promise reference", async () => {
+      const fetchData = action(async (id: number) => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        return `data-${id}`;
+      });
+
+      const spy = vi.fn();
+      const unsubscribe = fetchData.on(spy);
+
+      const promise = fetchData(123);
+
+      // Check loading state has promise reference
+      expect(spy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: "loading",
+          promise: promise,
+        })
+      );
+
+      await promise;
+
+      // Check success state has promise reference
+      expect(spy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: "success",
+          promise: promise,
+        })
+      );
+
+      unsubscribe();
+    });
+
+    it("should allow subscribing before first call", () => {
+      const increment = action((x: number) => x + 1);
+      const spy = vi.fn();
+
+      // Subscribe before any calls
+      const unsubscribe = increment.on(spy);
+
+      // No notifications yet
+      expect(spy).toHaveBeenCalledTimes(0);
+
+      // First call should notify
+      increment(5);
+      expect(spy).toHaveBeenCalledTimes(1);
+
+      unsubscribe();
     });
   });
 });

@@ -481,7 +481,7 @@ const Counter = blox<Props>((props) => {
 
 - **Use `blox.handle()`** - The recommended way to capture React hook results
 - **Access via `.current`** - Hook results available in `rx()` expressions and event handlers
-- **Undefined in builder phase** - `blox.handle().current` is `undefined` during the definition phase
+- **Undefined in definition phase** - `blox.handle().current` is `undefined` during the definition phase
 - **Runs on every render** - The callback passed to `blox.handle()` executes during React's render phase
 
 **Alternative: Manual pattern with `blox.onRender()`:**
@@ -575,6 +575,82 @@ function App() {
 4. **Read-only for consumers**: Consumers get `Signal<T>` (without `.set()` or `.reset()`), only the Provider can change the value
 
 Think of providers as **dependency injection for signals**, not React Context.
+
+#### Passing Signals to Providers
+
+**New Feature**: The Provider component now accepts `Signal<T>` directly as the `value` prop. This allows you to pass reactive signals to providers, and the provider will automatically subscribe and update consumers when the signal changes.
+
+```tsx
+import { signal, provider, blox, rx } from "rxblox";
+
+const [withTheme, ThemeProvider] = provider(
+  "theme",
+  "light" as "light" | "dark"
+);
+
+const App = blox(() => {
+  // Create a reactive signal for theme
+  const theme = signal<"light" | "dark">("light");
+
+  const toggleTheme = () => {
+    theme.set(theme() === "light" ? "dark" : "light");
+  };
+
+  return (
+    <div>
+      <button onClick={toggleTheme}>Toggle Theme</button>
+
+      {/* Pass signal directly to provider */}
+      <ThemeProvider value={theme}>
+        <ThemeDisplay />
+      </ThemeProvider>
+    </div>
+  );
+});
+
+const ThemeDisplay = blox(() => {
+  const theme = withTheme();
+
+  return rx(() => <div>Current theme: {theme()}</div>);
+});
+```
+
+**With Computed Signals:**
+
+```tsx
+const App = blox(() => {
+  const isDark = signal(false);
+
+  // Computed signal automatically updates when isDark changes
+  const theme = signal(() => (isDark() ? "dark" : "light"));
+
+  return (
+    <div>
+      <button onClick={() => isDark.set(!isDark())}>Toggle Mode</button>
+
+      {/* Computed signal updates consumers automatically */}
+      <ThemeProvider value={theme}>
+        <ThemeDisplay />
+      </ThemeProvider>
+    </div>
+  );
+});
+```
+
+**Benefits:**
+
+- ✅ **Reactive updates** - Consumers update automatically when source signal changes
+- ✅ **Works with computed signals** - Pass derived values directly
+- ✅ **Type-safe** - Full TypeScript support for `T | Signal<T>`
+- ✅ **No manual subscription** - Provider handles signal subscription automatically
+- ✅ **Automatic cleanup** - Signal subscription cleaned up on unmount
+
+**Use Cases:**
+
+- Sharing global signals across the component tree
+- Providing computed/derived values to children
+- Coordinating state between parent and deeply nested children
+- Creating reactive themes, settings, or configuration
 
 ### 7. Async Signals - `signal.async()`
 
@@ -1065,8 +1141,44 @@ const SearchResults = blox(() => {
 - 🚫 **Cancellation support** - Built-in AbortSignal integration with `action.cancellable()`
 - 🔄 **Concurrent call handling** - Only the latest call updates the action state
 - 🎯 **Event callbacks** - React to lifecycle events (`init`, `loading`, `success`, `error`, `done`, `reset`)
+- 📡 **Reactive subscriptions** - Subscribe to action state changes with `action.on()`
 - 🎨 **Type-safe** - Full TypeScript support with proper type inference
 - 🔌 **Works anywhere** - Use in `blox` components, effects, or plain JavaScript
+
+#### Subscribing to Actions
+
+You can subscribe to action state changes using the `on()` method:
+
+```tsx
+const saveUser = action(async (user: User) => {
+  return await api.save(user);
+});
+
+// Subscribe to state changes
+const unsubscribe = saveUser.on((loadable) => {
+  if (loadable?.status === "loading") {
+    showSpinner();
+  } else if (loadable?.status === "success") {
+    hideSpinner();
+    showNotification(`User ${loadable.value.name} saved!`);
+  } else if (loadable?.status === "error") {
+    hideSpinner();
+    showError(loadable.error);
+  }
+});
+
+// Call the action
+await saveUser({ name: "John" });
+
+// Unsubscribe when done
+unsubscribe();
+```
+
+This is particularly useful for:
+
+- Coordinating UI feedback (spinners, notifications)
+- Triggering side effects in response to action state changes
+- Integrating actions with effects or other reactive primitives
 
 ---
 
@@ -2152,11 +2264,55 @@ const Child = blox(() => {
 **Returns:** `[withXXX, XXXProvider]` tuple:
 
 - `withXXX()` - Function that returns the signal (must be called inside provider tree)
-- `Provider` - React component with `{ value: T; children: ReactNode }` props
+- `Provider` - React component with `{ value: T | Signal<T>; children: ReactNode }` props
 
 **Options:**
 
 - `equals?: (a: T, b: T) => boolean` - Custom equality function
+
+**Signal Support:**
+
+Providers accept both plain values and signals as the `value` prop:
+
+```tsx
+const [withTheme, ThemeProvider] = provider("theme", "light");
+
+// ✅ With plain value
+<ThemeProvider value="dark">
+  <Child />
+</ThemeProvider>;
+
+// ✅ With signal - updates consumers when signal changes
+const themeSignal = signal("dark");
+<ThemeProvider value={themeSignal}>
+  <Child />
+</ThemeProvider>;
+
+// Signal changes propagate to all consumers
+themeSignal.set("light"); // All consumers update automatically
+
+// ✅ With computed signal
+const isDark = signal(false);
+const theme = signal(() => (isDark() ? "dark" : "light"));
+<ThemeProvider value={theme}>
+  <Child />
+</ThemeProvider>;
+```
+
+**When to use signal values:**
+
+- ✅ Sharing global signals across the component tree
+- ✅ Providing computed/derived values to children
+- ✅ Coordinating state between parent and deeply nested children
+- ✅ Creating reactive themes, settings, or configuration
+
+The provider automatically:
+
+- Uses `.peek()` to get the initial value (avoids creating dependency)
+- Subscribes to signal changes
+- Updates all consumers when the signal changes
+- Cleans up subscriptions on unmount
+- Lazily creates the internal provider signal only when accessed
 
 ### Lifecycle Hooks
 
@@ -2243,7 +2399,7 @@ Creates a handle to capture values from React hooks during the render phase.
 
 This is useful in `blox` components where you need to use React hooks, but the component body only runs once. The callback runs on every render via `blox.onRender()`, and the returned value is accessible via `.current`.
 
-**Important**: The captured value is only available inside `rx()` expressions or event handlers, not in the component builder phase (which runs only once).
+**Important**: The captured value is only available inside `rx()` expressions or event handlers, not in the component definition phase (which runs only once).
 
 ```tsx
 import { blox, signal, rx } from "rxblox";
@@ -2289,7 +2445,7 @@ type Handle<T> = {
 **Notes:**
 
 - The `callback` runs on every component render
-- The value is `undefined` during the builder phase
+- The value is `undefined` during the definition phase
 - Must use `rx()` to access the value in JSX
 - Can access directly in event handlers
 
@@ -2499,7 +2655,48 @@ const deleteUser = action(
 - `action.result` - Last successful result (undefined if no success yet)
 - `action.error` - Last error (undefined if no error yet)
 - `action.calls` - Number of times the action has been called
+- `action.on(listener)` - Subscribe to action state changes (returns unsubscribe function)
 - `action.reset()` - Reset to idle state
+
+**Subscribing to action state changes:**
+
+```tsx
+const saveUser = action(async (user: User) => {
+  const response = await fetch("/api/users", {
+    method: "POST",
+    body: JSON.stringify(user),
+  });
+  return response.json();
+});
+
+// Subscribe to all state changes
+const unsubscribe = saveUser.on((loadable) => {
+  if (!loadable) {
+    console.log("Action idle");
+  } else if (loadable.status === "loading") {
+    console.log("Saving user...");
+  } else if (loadable.status === "success") {
+    console.log("User saved:", loadable.value);
+  } else if (loadable.status === "error") {
+    console.error("Save failed:", loadable.error);
+  }
+});
+
+// The subscriber is called for every state change
+await saveUser({ name: "John" }); // Logs: "Saving user..." then "User saved: ..."
+
+// Unsubscribe when done
+unsubscribe();
+```
+
+The `on()` method receives a `Loadable<T>` object (or `undefined` for idle state) representing the current action state. This is useful for:
+
+- Reacting to action state changes in effects or other signals
+- Implementing custom loading indicators
+- Logging or analytics
+- Coordinating multiple actions
+
+**Note:** The `on()` subscription provides the full `Loadable` state, while event callbacks in `options.on` provide unwrapped values.
 
 ### `action.cancellable<TResult, TArgs>(fn, options?)`
 

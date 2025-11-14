@@ -11,6 +11,23 @@ const [withTheme, ThemeProvider] = provider(
 );
 const [withCount, CountProvider] = provider("count", 0);
 
+const Greeting = blox(() => {
+  const name = signal("World");
+
+  return (
+    <div>
+      <h1>Hello, {rx(name)}</h1>
+      <div>
+        {rx("input", {
+          value: name,
+          onChange: (e: React.ChangeEvent<HTMLInputElement>) =>
+            name.set(e.target.value),
+        })}
+      </div>
+    </div>
+  );
+});
+
 function App() {
   return (
     <div className="App">
@@ -23,6 +40,10 @@ function App() {
       </header>
 
       <main className="App-main">
+        <section>
+          <h3>Greeting</h3>
+          <Greeting />
+        </section>
         {/* Simple counter using rx() for reactive rendering */}
         <section className="counter-section">
           <h2>Simple Counter (using rx)</h2>

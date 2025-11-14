@@ -8,7 +8,7 @@ import {
   useState,
 } from "react";
 import { MutableSignal, Signal } from "./types";
-import { signal } from "./signal";
+import { isSignal, signal } from "./signal";
 import { dispatcherToken, getDispatcher } from "./dispatcher";
 
 /**
@@ -60,14 +60,19 @@ export function useProviderResolver(): ProviderResolver | undefined {
  * where all consuming components re-render automatically.
  */
 function ProviderContainer<T>(
-  props: PropsWithChildren<{ value: T; providerDef: ProviderDef<T> }>
+  props: PropsWithChildren<{
+    value: T | Signal<T>;
+    providerDef: ProviderDef<T>;
+  }>
 ) {
   const parentResolver = useContext(providerResolverContext);
   const providerDefRef = useRef(props.providerDef);
   providerDefRef.current = props.providerDef;
   const [providerInstance] = useState(() => {
     let currentSignal: MutableSignal<T> | undefined;
-    let currentValue = props.value;
+    let currentValue = isSignal<T>(props.value)
+      ? props.value.peek()
+      : props.value;
 
     return {
       getSignal() {
@@ -88,6 +93,7 @@ function ProviderContainer<T>(
         } else {
           currentValue = value;
         }
+        // keep not creating signal if it has no access
         currentSignal?.set(currentValue);
       },
     };
@@ -113,6 +119,11 @@ function ProviderContainer<T>(
   );
 
   useLayoutEffect(() => {
+    if (isSignal<T>(props.value)) {
+      // No need to set initial value - it was already captured with .peek()
+      // Just set up the subscription for future changes
+      return props.value.on((value) => providerInstance.setValue(value));
+    }
     providerInstance.setValue(props.value);
   }, [providerInstance, props.value]);
 
@@ -145,12 +156,16 @@ export type ProviderOptions<T> = {
  * the provider value changes. Only `rx()` expressions or `effect()` callbacks that
  * explicitly access the provider signal will react to changes.
  *
+ * **Signal<T> Support**: The Provider component accepts both plain values (`T`) and
+ * signals (`Signal<T>`) as the `value` prop. When a signal is provided, the provider
+ * automatically subscribes to it and updates consumers when the signal changes.
+ *
  * @param name - Unique identifier for the provider
  * @param initialValue - Default value for the provider (cannot be a function)
  * @param options - Configuration options including custom equality function
  * @returns A tuple `[withXXX, XXXProvider]` where:
  *   - `withXXX` is a function that returns the provider signal (throws if called outside provider context)
- *   - `XXXProvider` is a React component that accepts `{ value: T; children: ReactNode }` props
+ *   - `XXXProvider` is a React component that accepts `{ value: T | Signal<T>; children: ReactNode }` props
  *
  * @example
  * ```tsx
@@ -185,6 +200,22 @@ export type ProviderOptions<T> = {
  *     console.log("Theme changed:", theme()); // Runs when theme changes
  *   });
  *   return <div>Check console</div>;
+ * });
+ *
+ * // ✅ CORRECT: Pass signal as provider value
+ * const App = blox(() => {
+ *   const theme = signal<"light" | "dark">("light");
+ *
+ *   return (
+ *     <div>
+ *       <button onClick={() => theme.set(theme() === "light" ? "dark" : "light")}>
+ *         Toggle Theme
+ *       </button>
+ *       <ThemeProvider value={theme}>
+ *         <ChildComponent />
+ *       </ThemeProvider>
+ *     </div>
+ *   );
  * });
  * ```
  *
@@ -237,10 +268,30 @@ export function provider<T>(
   /**
    * React component that renders a provider container supplying a value to its children.
    *
-   * @param props.value - The value to provide to child components
+   * @param props.value - The value to provide to child components (can be T or Signal<T>)
    * @param props.children - React children that will have access to the provider
+   *
+   * **Signal<T> Support**: When `value` is a signal, the provider:
+   * - Uses `.peek()` to get the initial value (avoids dependency)
+   * - Subscribes to the signal and updates consumers on changes
+   * - Automatically cleans up the subscription on unmount
+   * - Lazily creates the internal provider signal only when accessed
+   *
+   * @example
+   * ```tsx
+   * // With plain value
+   * <ThemeProvider value="dark">
+   *   <Child />
+   * </ThemeProvider>
+   *
+   * // With signal - updates consumers automatically
+   * const themeSignal = signal("dark");
+   * <ThemeProvider value={themeSignal}>
+   *   <Child />
+   * </ThemeProvider>
+   * ```
    */
-  const Provider = (props: PropsWithChildren<{ value: T }>) => {
+  const Provider = (props: PropsWithChildren<{ value: T | Signal<T> }>) => {
     return (
       <ProviderContainer
         value={props.value}

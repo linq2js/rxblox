@@ -8,7 +8,6 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
-  useState,
 } from "react";
 import { signalDispatcher, signalToken } from "./signalDispatcher";
 import { emitter } from "./emitter";

@@ -3,6 +3,7 @@ import { disposableToken } from "./disposableDispatcher";
 import { isPromiseLike } from "./isPromiseLike";
 import { loadable, Loadable } from "./loadable";
 import { signal } from "./signal";
+import { Signal } from "./types";
 
 /**
  * An action is a callable function that tracks its execution state.
@@ -23,6 +24,36 @@ export type Action<TArgs extends readonly any[] = any[], TResult = void> = {
   readonly error: Error | undefined;
   /** Number of times the action has been called */
   readonly calls: number;
+  /**
+   * Subscribe to action state changes.
+   *
+   * The callback receives a Loadable object representing the current state
+   * (loading/success/error) whenever the action is called or completes.
+   *
+   * @param listener - Callback that receives the loadable state
+   * @returns Unsubscribe function
+   *
+   * @example
+   * ```ts
+   * const saveUser = action(async (user: User) => {
+   *   return await api.save(user);
+   * });
+   *
+   * const unsubscribe = saveUser.on((loadable) => {
+   *   if (loadable?.status === "loading") {
+   *     console.log("Saving...");
+   *   } else if (loadable?.status === "success") {
+   *     console.log("Saved:", loadable.value);
+   *   } else if (loadable?.status === "error") {
+   *     console.error("Error:", loadable.error);
+   *   }
+   * });
+   *
+   * await saveUser({ name: "John" });
+   * unsubscribe();
+   * ```
+   */
+  on: Signal<Loadable<Awaited<TResult>> | undefined>["on"];
   /** Reset the action to idle state */
   reset(): void;
 };
@@ -208,6 +239,7 @@ export function action<TResult = void, TArgs extends readonly any[] = any[]>(
 
   // Add reset method
   Object.assign(dispatch, {
+    on: result.on,
     reset() {
       result.reset();
       cleanup();
