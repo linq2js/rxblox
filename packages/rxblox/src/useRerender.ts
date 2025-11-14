@@ -1,4 +1,4 @@
-import { debounce } from "lodash";
+import debounce from "lodash/debounce";
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 export type RerenderOptions = {

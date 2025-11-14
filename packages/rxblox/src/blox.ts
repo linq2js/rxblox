@@ -22,7 +22,7 @@ import { Emitter, emitter } from "./emitter";
 import { useUnmount } from "./useUnmount";
 import { getDispatcher, withDispatchers } from "./dispatcher";
 import { EventDispatcher, eventToken } from "./eventDispatcher";
-import { once } from "lodash";
+import once from "lodash/once";
 import { signalToken } from "./signalDispatcher";
 import { disposableToken } from "./disposableDispatcher";
 
