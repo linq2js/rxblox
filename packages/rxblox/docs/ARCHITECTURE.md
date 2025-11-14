@@ -798,35 +798,20 @@ const selector = createSelector([signal1, signal2], (a, b) =>
 
 ## Comparison with Other Libraries
 
-### vs Jotai
-
-| Feature        | rxblox              | Jotai           |
-| -------------- | ------------------- | --------------- |
-| Granularity    | Expression-level    | Atom-level      |
-| Bundle Size    | 17.21 kB gzipped    | ~3 kB gzipped   |
-| Re-renders     | Minimal (rx() only) | Component-level |
-| Async          | Built-in            | Suspense-based  |
-| Learning Curve | Medium              | Low             |
-
-### vs Zustand
-
-| Feature     | rxblox           | Zustand        |
-| ----------- | ---------------- | -------------- |
-| Reactivity  | Fine-grained     | Selector-based |
-| Bundle Size | 17.21 kB gzipped | ~3 kB gzipped  |
-| TypeScript  | Excellent        | Good           |
-| DevTools    | Coming           | Built-in       |
-| Middleware  | Planned          | Extensive      |
-
-### vs MobX
-
-| Feature           | rxblox           | MobX             |
-| ----------------- | ---------------- | ---------------- |
-| Reactivity        | Signal-based     | Observable-based |
-| Bundle Size       | 17.21 kB gzipped | ~95 kB gzipped   |
-| React Integration | Native           | Separate package |
-| Decorators        | No               | Optional         |
-| Learning Curve    | Medium           | High             |
+| Feature           | rxblox              | Jotai           | Zustand        | MobX             |
+| ----------------- | ------------------- | --------------- | -------------- | ---------------- |
+| Reactivity        | Signal-based        | Atom-level      | Selector-based | Observable-based |
+| Granularity       | Expression-level    | Atom-level      | Store-level    | Observable-level |
+| Bundle Size       | 17.21 kB gzipped    | ~3 kB gzipped   | ~3 kB gzipped  | ~95 kB gzipped   |
+| Re-renders        | Minimal (rx() only) | Component-level | Selector-based | Observer-level   |
+| Async             | Built-in            | Suspense-based  | Manual         | Built-in         |
+| TypeScript        | Excellent           | Good            | Good           | Good             |
+| DevTools          | Coming              | Available       | Built-in       | Extensive        |
+| Middleware        | Planned             | Limited         | Extensive      | Extensive        |
+| React Integration | Native              | Native          | Native         | Separate package |
+| Decorators        | No                  | No              | No             | Optional         |
+| Learning Curve    | Medium              | Low             | Low            | High             |
+| Setup Required    | Minimal             | Provider        | Store creation | Configuration    |
 
 ---
 
