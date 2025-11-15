@@ -14,7 +14,7 @@ import { Signal } from "./types";
  * @template TArgs - The arguments tuple type
  * @template TResult - The return type (can be Promise)
  */
-export type Action<TArgs extends readonly any[] = any[], TResult = void> = {
+export type Action<TArgs extends readonly any[] = any[], TResult = any> = {
   (...args: TArgs): TResult;
   /** Current status of the action */
   readonly status: "idle" | "loading" | "success" | "error";
@@ -248,4 +248,10 @@ export function action<TResult = void, TArgs extends readonly any[] = any[]>(
   });
 
   return dispatch as Action<TArgs, TResult>;
+}
+
+export function isAction<TResult = any, TArgs extends any[] = any[]>(
+  value: any
+): value is Action<TArgs, TResult> {
+  return typeof value === "function" && "on" in value && "reset" in value;
 }
