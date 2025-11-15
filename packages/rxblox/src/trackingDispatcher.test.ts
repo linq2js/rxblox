@@ -331,6 +331,93 @@ describe("trackingDispatcher", () => {
         expect(dispatcher.signals).not.toContain(error);
       }
     });
+
+    it("should track all signals when using spread operator", () => {
+      const onUpdate = vi.fn();
+      const onCleanup = emitter();
+      const dispatcher = trackingDispatcher(onUpdate, onCleanup);
+      const s1 = signal(10);
+      const s2 = signal(20);
+      const s3 = signal(30);
+
+      const tracked = dispatcher.track({ s1, s2, s3 });
+
+      // Initially no signals are tracked
+      expect(dispatcher.signals.length).toBe(0);
+
+      // Spread operator accesses all properties, thus tracking all signals
+      const values = { ...tracked };
+
+      expect(values).toEqual({ s1: 10, s2: 20, s3: 30 });
+      expect(dispatcher.signals.length).toBe(3);
+      expect(dispatcher.signals).toContain(s1);
+      expect(dispatcher.signals).toContain(s2);
+      expect(dispatcher.signals).toContain(s3);
+    });
+
+    it("should track all signals with Object.assign", () => {
+      const onUpdate = vi.fn();
+      const onCleanup = emitter();
+      const dispatcher = trackingDispatcher(onUpdate, onCleanup);
+      const a = signal(1);
+      const b = signal(2);
+      const c = signal(3);
+
+      const tracked = dispatcher.track({ a, b, c });
+
+      // Initially no signals are tracked
+      expect(dispatcher.signals.length).toBe(0);
+
+      // Object.assign accesses all properties
+      const values = Object.assign({}, tracked);
+
+      expect(values).toEqual({ a: 1, b: 2, c: 3 });
+      expect(dispatcher.signals.length).toBe(3);
+      expect(dispatcher.signals).toContain(a);
+      expect(dispatcher.signals).toContain(b);
+      expect(dispatcher.signals).toContain(c);
+    });
+
+    it("should track signals with Object.values", () => {
+      const onUpdate = vi.fn();
+      const onCleanup = emitter();
+      const dispatcher = trackingDispatcher(onUpdate, onCleanup);
+      const x = signal(100);
+      const y = signal(200);
+      const z = signal(300);
+
+      const tracked = dispatcher.track({ x, y, z });
+
+      // Object.values accesses all enumerable properties
+      const values = Object.values(tracked);
+
+      expect(values).toEqual([100, 200, 300]);
+      expect(dispatcher.signals.length).toBe(3);
+      expect(dispatcher.signals).toContain(x);
+      expect(dispatcher.signals).toContain(y);
+      expect(dispatcher.signals).toContain(z);
+    });
+
+    it("should track signals with Object.entries", () => {
+      const onUpdate = vi.fn();
+      const onCleanup = emitter();
+      const dispatcher = trackingDispatcher(onUpdate, onCleanup);
+      const name = signal("Alice");
+      const age = signal(25);
+
+      const tracked = dispatcher.track({ name, age });
+
+      // Object.entries accesses all enumerable properties
+      const entries = Object.entries(tracked);
+
+      expect(entries).toEqual([
+        ["name", "Alice"],
+        ["age", 25],
+      ]);
+      expect(dispatcher.signals.length).toBe(2);
+      expect(dispatcher.signals).toContain(name);
+      expect(dispatcher.signals).toContain(age);
+    });
   });
 
   describe("getDispatcher", () => {

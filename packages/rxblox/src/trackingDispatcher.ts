@@ -236,4 +236,3 @@ export function trackingDispatcher(
 
   return dispatcher;
 }
-
