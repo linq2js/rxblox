@@ -1,11 +1,55 @@
 import { FC, ReactNode } from "react";
 
-export type SignalTrackFunction = <
-  TSignals extends Record<string, Signal<unknown>>
->(
-  signals: TSignals
+/**
+ * Function type for explicit dependency tracking in async contexts.
+ *
+ * `TrackFunction` creates a lazy tracking proxy that enables fine-grained
+ * dependency management by deferring signal subscription until properties
+ * are accessed. This solves the problem of losing tracking context after
+ * `await` statements in async functions.
+ *
+ * **Key characteristics:**
+ * - Accepts an object where values are functions (signals or computed properties)
+ * - Returns a proxy that tracks dependencies lazily
+ * - Maintains tracking context across `await` boundaries
+ * - Supports conditional tracking for performance optimization
+ * - Fully type-safe with automatic inference
+ *
+ * @template TTrackable - Object type mapping property names to functions
+ * @param signals - Object where each value is a function to track
+ * @returns Proxy object that executes functions with tracking when accessed
+ *
+ * @example
+ * ```ts
+ * // In signal.async
+ * const data = signal.async(async ({ track }) => {
+ *   const tracked = track({ userId, filter });
+ *
+ *   await delay(100);
+ *
+ *   return fetchData(tracked.userId, tracked.filter);
+ * });
+ * ```
+ *
+ * @example
+ * ```ts
+ * // In effect with custom computed
+ * effect(({ track }) => {
+ *   const tracked = track({
+ *     count: signal(5),
+ *     doubled: () => count() * 2,
+ *   });
+ *
+ *   console.log(tracked.doubled); // Tracks count
+ * });
+ * ```
+ *
+ * @see {@link SignalDispatcher.track} for implementation details
+ */
+export type TrackFunction = <TTrackable extends Record<string, () => unknown>>(
+  signals: TTrackable
 ) => {
-  [k in keyof TSignals]: TSignals[k] extends Signal<infer T> ? T : never;
+  [k in keyof TTrackable]: TTrackable[k] extends () => infer T ? T : never;
 };
 
 /**
@@ -235,12 +279,7 @@ export type SignalDispatcher = {
 
   /**
    * Creates a proxy for explicit dependency tracking.
-   * The proxy intercepts property access and:
-   * 1. Registers the signal as a dependency (if not already tracked)
-   * 2. Subscribes to the signal for future updates
-   * 3. Returns the signal's current value
-   *
-   * This enables lazy tracking - only accessed signals become dependencies.
+   * This enables lazy tracking
    */
-  track: SignalTrackFunction;
+  track: TrackFunction;
 };

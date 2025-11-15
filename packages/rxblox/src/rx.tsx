@@ -9,7 +9,7 @@ import {
   useMemo,
   useState,
 } from "react";
-import { signalDispatcher, signalToken } from "./signalDispatcher";
+import { trackingDispatcher, trackingToken } from "./trackingDispatcher";
 import { emitter } from "./emitter";
 import { useRerender } from "./useRerender";
 import { withDispatchers } from "./dispatcher";
@@ -65,7 +65,7 @@ export const Reactive = memo(function Reactive(props: { exp: () => unknown }) {
   // Signal dispatcher is stable across renders - created once and reused
   // We use useMemo instead of useState to pass required parameters
   const dispatcher = useMemo(() => {
-    return signalDispatcher();
+    return trackingDispatcher();
   }, []);
 
   // Re-throw errors so ErrorBoundary can catch them
@@ -128,7 +128,7 @@ export const Reactive = memo(function Reactive(props: { exp: () => unknown }) {
     dispatcher.clear();
 
     try {
-      return withDispatchers([signalToken(dispatcher)], props.exp);
+      return withDispatchers([trackingToken(dispatcher)], props.exp);
     } finally {
       const nextSignals = new Set(dispatcher.signals);
 

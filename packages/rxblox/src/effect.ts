@@ -1,11 +1,11 @@
 import { withDispatchers } from "./dispatcher";
 import { addEffect } from "./effectDispatcher";
 import { emitter } from "./emitter";
-import { signalDispatcher, signalToken } from "./signalDispatcher";
-import { Effect, SignalTrackFunction } from "./types";
+import { trackingDispatcher, trackingToken } from "./trackingDispatcher";
+import { Effect, TrackFunction } from "./types";
 
 export type EffectContext = {
-  track: SignalTrackFunction;
+  track: TrackFunction;
 };
 
 /**
@@ -74,8 +74,8 @@ export function effect(
     onCleanup.clear();
 
     // Track which signals are accessed during execution
-    const dispatcher = signalDispatcher(run, onCleanup);
-    const result = withDispatchers([signalToken(dispatcher)], () =>
+    const dispatcher = trackingDispatcher(run, onCleanup);
+    const result = withDispatchers([trackingToken(dispatcher)], () =>
       fn({ track: dispatcher.track })
     );
     // Register the effect's cleanup function if one was returned
@@ -107,8 +107,8 @@ export function effect(
       cleanup();
 
       // Track which signals are accessed during execution
-      const dispatcher = signalDispatcher(run, onCleanup);
-      const result = withDispatchers([signalToken(dispatcher)], () =>
+      const dispatcher = trackingDispatcher(run, onCleanup);
+      const result = withDispatchers([trackingToken(dispatcher)], () =>
         fn({ track: dispatcher.track })
       );
       // Register the effect's cleanup function if one was returned

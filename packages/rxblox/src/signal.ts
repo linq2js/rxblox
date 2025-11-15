@@ -1,45 +1,53 @@
 import { produce } from "immer";
-import type { Listener, MutableSignal, Signal } from "./types";
-import { signalDispatcher, signalToken } from "./signalDispatcher";
+import type { Listener, MutableSignal, Signal, TrackFunction } from "./types";
+import { trackingDispatcher, trackingToken } from "./trackingDispatcher";
 import { emitter } from "./emitter";
 import { getDispatcher, withDispatchers } from "./dispatcher";
 import { disposableToken } from "./disposableDispatcher";
-
-export type SignalTrackFunction = <
-  TSignals extends Record<string, Signal<unknown>>
->(
-  signals: TSignals
-) => {
-  [k in keyof TSignals]: TSignals[k] extends Signal<infer T> ? T : never;
-};
 
 /**
  * Context provided to computed signal functions.
  *
  * This context enables explicit dependency tracking via the `track()` function,
- * which creates a proxy that lazily tracks only the signals you actually access.
+ * which creates a lazy tracking proxy that only subscribes to signals when
+ * their properties are accessed.
+ *
+ * @example
+ * ```ts
+ * const result = signal(({ track }) => {
+ *   const tracked = track({ condition, a, b });
+ *   // Only 'condition' + one of 'a' or 'b' will be tracked
+ *   return tracked.condition ? tracked.a : tracked.b;
+ * });
+ * ```
  */
 export type ComputedSignalContext = {
   /**
-   * Creates a proxy for explicit dependency tracking.
+   * Creates a lazy tracking proxy for explicit dependency management.
    *
-   * Only signals accessed through the proxy will be tracked as dependencies.
-   * This enables conditional tracking - if you access a signal in one branch
-   * but not another, only the accessed signals become dependencies.
+   * The proxy enables fine-grained, conditional dependency tracking by only
+   * subscribing to signals when their properties are accessed. This is useful
+   * for conditional logic where you don't want to track all signals.
    *
-   * @param signals - Record of signals to make available for tracking
-   * @returns A proxy that tracks signal accesses and returns their values
+   * @param signals - Record mapping property names to functions (signals or computed)
+   * @returns A proxy that tracks dependencies lazily when properties are accessed
    *
    * @example
    * ```ts
    * const result = signal(({ track }) => {
-   *   const { condition, a, b } = track({ condition, a, b });
-   *   // Only 'condition' + one of 'a' or 'b' will be tracked
-   *   return condition ? a : b;
+   *   const tracked = track({
+   *     condition,
+   *     value1: a,
+   *     value2: b,
+   *     computed: () => c() * 2,
+   *   });
+   *
+   *   // Only tracks 'condition' + one of the values
+   *   return tracked.condition ? tracked.value1 : tracked.value2;
    * });
    * ```
    */
-  track: SignalTrackFunction;
+  track: TrackFunction;
 };
 
 /**
@@ -126,7 +134,7 @@ export function signal<T>(
 
     if (typeof value === "function") {
       // This is a computed signal - track dependencies
-      const dispatcher = signalDispatcher(recompute, onCleanup);
+      const dispatcher = trackingDispatcher(recompute, onCleanup);
       const context: ComputedSignalContext = {
         track: dispatcher.track,
       };
@@ -134,7 +142,7 @@ export function signal<T>(
       // The dispatcher tracks implicit accesses (signal calls)
       // The track() proxy tracks explicit accesses (proxy property access)
       current = {
-        value: withDispatchers([signalToken(dispatcher)], () =>
+        value: withDispatchers([trackingToken(dispatcher)], () =>
           (value as (context: ComputedSignalContext) => T)(context)
         ),
       };
@@ -167,7 +175,7 @@ export function signal<T>(
       return current.value;
     } finally {
       // If we're inside a computed signal, register this signal as a dependency
-      getDispatcher(signalToken)?.add(s);
+      getDispatcher(trackingToken)?.add(s);
     }
   };
 

@@ -150,7 +150,7 @@ function signal<T>(initialValue: T): MutableSignal<T> {
 
   const get = () => {
     // Register with current dispatcher for tracking
-    getDispatcher(signalToken)?.add(get);
+    getDispatcher(trackingToken)?.add(get);
     return current.value;
   };
 
@@ -170,7 +170,7 @@ function signal<T>(initialValue: T): MutableSignal<T> {
 
 ### 2. Dispatcher System
 
-**File**: `src/dispatcher.ts`, `src/signalDispatcher.ts`
+**File**: `src/dispatcher.ts`, `src/trackingDispatcher.ts`
 
 The dispatcher is the core dependency tracking mechanism.
 
@@ -239,7 +239,7 @@ function blox<TProps, TRef>(
         const rerender = useRerender();
 
         // Track signals accessed during render
-        dispatchers.set(signalToken, signalDispatcher(rerender));
+        dispatchers.set(trackingToken, trackingDispatcher(rerender));
         dispatchers.set(effectToken, effectDispatcher(emitters));
         dispatchers.set(eventToken, eventDispatcher(emitters));
 
@@ -249,7 +249,7 @@ function blox<TProps, TRef>(
           {
             get(_, prop) {
               // Convert prop access to signal access
-              return getDispatcher(signalToken)?.track(
+              return getDispatcher(trackingToken)?.track(
                 () => propsFromReact[prop]
               );
             },
@@ -300,17 +300,17 @@ function blox<TProps, TRef>(
 ```typescript
 function rx<T>(expression: () => T): T {
   const [, forceUpdate] = useState({});
-  const dispatcher = useMemo(() => signalDispatcher(() => forceUpdate({})));
+  const dispatcher = useMemo(() => trackingDispatcher(() => forceUpdate({})));
 
   const [result, setResult] = useState(() =>
-    withDispatchers(new Map([[signalToken, dispatcher]]), expression)
+    withDispatchers(new Map([[trackingToken, dispatcher]]), expression)
   );
 
   useLayoutEffect(() => {
     const cleanup = emitter();
     dispatcher.subscribe(() => {
       const newResult = withDispatchers(
-        new Map([[signalToken, dispatcher]]),
+        new Map([[trackingToken, dispatcher]]),
         expression
       );
       setResult(newResult);
@@ -353,7 +353,7 @@ class EffectDispatcher {
 
     this.effects.forEach((effectFn) => {
       const cleanup = emitter();
-      const dispatcher = signalDispatcher(() => {
+      const dispatcher = trackingDispatcher(() => {
         // Re-run effect on signal changes
         cleanup.emit();
         runEffect();
@@ -361,7 +361,7 @@ class EffectDispatcher {
 
       const runEffect = () => {
         const result = withDispatchers(
-          new Map([[signalToken, dispatcher]]),
+          new Map([[trackingToken, dispatcher]]),
           effectFn
         );
         if (typeof result === "function") {

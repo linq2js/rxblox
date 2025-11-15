@@ -23,7 +23,7 @@ import { useUnmount } from "./useUnmount";
 import { getDispatcher, withDispatchers } from "./dispatcher";
 import { EventDispatcher, eventToken } from "./eventDispatcher";
 import once from "lodash/once";
-import { signalToken } from "./signalDispatcher";
+import { trackingToken } from "./trackingDispatcher";
 import { disposableToken } from "./disposableDispatcher";
 
 /**
@@ -235,7 +235,7 @@ export function blox<
 
             // Add the signal to the current dispatcher for tracking
             // This allows effects and rx() expressions to track this prop
-            getDispatcher(signalToken)?.add(propSignal);
+            getDispatcher(trackingToken)?.add(propSignal);
 
             // Return the current prop value
             return propsRef.current?.[prop as keyof PropsWithoutRef<TProps>];

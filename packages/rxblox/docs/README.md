@@ -873,6 +873,211 @@ const data = signal.async(async () => {
 
 **Best Practice:** Use `track()` for maximum flexibility and clarity.
 
+#### The `track()` Method - Lazy Tracking for Async Contexts
+
+The `track()` method provides **lazy, fine-grained dependency tracking** that works seamlessly in async contexts. It's available in:
+
+- `signal.async(async ({ track }) => ...)` - Async signal contexts
+- `effect(({ track }) => ...)` - Effect contexts
+
+**How it works:**
+
+1. Pass an object where values are **functions** (signals or computed properties)
+2. `track()` returns a **lazy proxy** that doesn't track anything yet
+3. When you access a property, the proxy executes the function with the dispatcher context
+4. This ensures tracking happens at **access time**, maintaining the tracking context even after `await`
+
+##### Basic Usage
+
+```tsx
+// In signal.async
+const userId = signal(1);
+const filter = signal("active");
+
+const data = signal.async(async ({ track }) => {
+  // Create tracked proxy - no tracking happens yet
+  const tracked = track({ userId, filter });
+
+  // Before await - tracking works
+  const id = tracked.userId; // ✅ userId is now tracked
+
+  await delay(100);
+
+  // After await - tracking STILL works!
+  const filterValue = tracked.filter; // ✅ filter is now tracked
+
+  return fetchData(id, filterValue);
+});
+```
+
+##### Tracking Props in `blox` Components
+
+A powerful use case is tracking `blox` component props in async contexts:
+
+```tsx
+const UserProfile = blox<{ userId: number; status: string }>((props) => {
+  const userData = signal.async(async ({ track }) => {
+    // Track props as dependencies
+    const tracked = track({
+      userId: props.userId,
+      status: props.status,
+    });
+
+    // Can await before accessing props
+    await delay(100);
+
+    // Still tracks correctly after await!
+    return fetchUser(tracked.userId, tracked.status);
+  });
+
+  return rx(() => {
+    const { status, value } = userData();
+    if (status === "loading") return <div>Loading...</div>;
+    return <div>{value.name}</div>;
+  });
+});
+
+// Changing props triggers re-fetch automatically
+<UserProfile userId={1} status="active" />;
+```
+
+##### Custom Computed Properties
+
+You can pass custom functions for computed tracking:
+
+```tsx
+// Create signals at module/component scope
+const count = signal(5);
+const multiplier = signal(2);
+
+const data = signal.async(async ({ track }) => {
+  const tracked = track({
+    count, // Direct signal
+    doubled: () => count() * 2, // Custom computed
+    tripled: () => count() * 3, // Another computed
+    multiplied: () => count() * multiplier(), // Uses multiple signals
+  });
+
+  await delay(10);
+
+  // Access computed properties after await
+  return {
+    doubled: tracked.doubled, // Tracks count
+    multiplied: tracked.multiplied, // Tracks count AND multiplier
+  };
+});
+```
+
+##### Conditional Tracking (Lazy Benefits)
+
+The proxy is **lazy** - it only tracks signals when you actually access them:
+
+```tsx
+// Create signals at module/component scope
+const isLoggedIn = signal(true);
+const userId = signal(123);
+const adminData = signal({ role: "admin" });
+
+effect(({ track }) => {
+  const tracked = track({ isLoggedIn, userId, adminData });
+
+  // Only track isLoggedIn
+  if (tracked.isLoggedIn) {
+    // Now also track userId
+    console.log("User:", tracked.userId);
+
+    // adminData is NEVER tracked because never accessed
+  }
+});
+```
+
+##### Best Practices for `track()`
+
+**✅ DO: Use conditional access for fine-grained tracking**
+
+```tsx
+const tracked = track({ condition, data, error });
+
+if (tracked.condition) {
+  // Only track what you need
+  const { data, error } = tracked;
+}
+```
+
+**❌ DON'T: Destructure immediately (tracks everything)**
+
+```tsx
+const tracked = track({ a, b, c });
+const { a, b, c } = tracked; // Tracks all signals immediately
+```
+
+**✅ DO: Pass signals as-is or use arrow functions**
+
+```tsx
+const tracked = track({
+  userId: props.userId, // Direct signal
+  fullName: () => `${firstName()} ${lastName()}`, // Computed
+});
+```
+
+**❌ DON'T: Pass non-function values**
+
+```tsx
+const tracked = track({
+  userId: props.userId,
+  constant: 123, // ❌ ERROR: Must be a function
+});
+```
+
+##### Tracking in Regular Effects
+
+`track()` is also available in regular `effect()` calls:
+
+```tsx
+const count = signal(0);
+const name = signal("Alice");
+
+effect(({ track }) => {
+  const tracked = track({ count, name });
+
+  async function doAsync() {
+    // Before await
+    const c = tracked.count; // ✅ Tracked
+
+    await delay(100);
+
+    // After await - still works
+    const n = tracked.name; // ✅ Tracked
+    console.log(`${n}: ${c}`);
+  }
+
+  doAsync();
+});
+```
+
+##### Why Use `track()` Over Implicit Tracking?
+
+| Feature | `track()` | Implicit Tracking |
+| --- | --- | --- |
+| **Works after await** | ✅ Yes | ❌ No |
+| **Conditional tracking** | ✅ Yes (lazy proxy) | ⚠️ Limited |
+| **Custom computed** | ✅ Yes | ❌ No |
+| **Type safety** | ✅ Full inference | ✅ Full inference |
+| **Clarity** | ✅ Explicit intent | ⚠️ Can be unclear |
+
+**Use `track()` when:**
+
+- Your function has `await` statements
+- You want conditional dependency tracking
+- You need to track props from `blox` components
+- You want explicit, clear intent about what's tracked
+
+**Use implicit tracking when:**
+
+- Your function is fully synchronous
+- You access all signals before any async operations
+- You want the simplest possible code
+
 ### 8. Loadable States
 
 Loadable is a discriminated union type representing the state of an asynchronous operation.

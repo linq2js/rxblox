@@ -93,9 +93,9 @@ export function dispatcherToken<T>(name: string): DispatcherToken<T> {
  *
  * @example
  * ```ts
- * const signalToken = dispatcherToken<SignalDispatcher>("signalDispatcher");
+ * const trackingToken = dispatcherToken<SignalDispatcher>("trackingDispatcher");
  *
- * const dispatcher = getDispatcher(signalToken);
+ * const dispatcher = getDispatcher(trackingToken);
  * if (dispatcher) {
  *   dispatcher.add(someSignal);
  * }
@@ -126,16 +126,16 @@ export function getDispatcher<T>(token: DispatcherToken<T>): T | undefined {
  *
  * @example
  * ```ts
- * import { signalToken, effectToken } from "./dispatchers";
+ * import { trackingToken, effectToken } from "./dispatchers";
  *
  * const result = withDispatchers(
  *   [
- *     signalToken(mySignalDispatcher),
+ *     trackingToken(myTrackingDispatcher),
  *     effectToken(myEffectDispatcher),
  *   ],
  *   () => {
  *     // Function body - dispatchers are active here
- *     // getDispatcher(signalToken) returns mySignalDispatcher
+ *     // getDispatcher(trackingToken) returns myTrackingDispatcher
  *     return someComputation();
  *   }
  * );
@@ -144,14 +144,14 @@ export function getDispatcher<T>(token: DispatcherToken<T>): T | undefined {
  * @example
  * ```ts
  * // Single entry
- * withDispatchers(signalToken(dispatcher), () => {
+ * withDispatchers(trackingToken(dispatcher), () => {
  *   // Use dispatcher here
  * });
  *
  * // Skip undefined values
  * withDispatchers(
  *   [
- *     signalToken(dispatcher),
+ *     trackingToken(dispatcher),
  *     providerToken(undefined), // This entry is skipped
  *   ],
  *   () => { }
