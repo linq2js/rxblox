@@ -159,7 +159,7 @@ describe("signal", () => {
 
       // Initial computation
       expect(computed()).toBe(10);
-      
+
       // Subscribe - listener is NOT called immediately
       computed.on(listener);
       expect(listener).not.toHaveBeenCalled();
@@ -277,7 +277,7 @@ describe("signal", () => {
 
   describe("custom equality", () => {
     it("should use custom equality function", () => {
-      const options: SignalOptions<{ id: number }> = {
+      const options: SignalOptions = {
         equals: (a, b) => a.id === b.id,
       };
       const s = signal({ id: 1, name: "Alice" }, options);

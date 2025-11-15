@@ -62,7 +62,7 @@ export type ComputedSignalContext = {
 /**
  * Options for configuring a signal's behavior.
  */
-export type SignalOptions<T> = {
+export type SignalOptions<T = any> = {
   /**
    * Custom equality function to determine if the signal value has changed.
    * Defaults to Object.is for reference equality.
@@ -167,7 +167,7 @@ export type SignalOptions<T> = {
  */
 export function signal<T>(
   value: T | ((context: ComputedSignalContext) => T),
-  options: SignalOptions<T> = {}
+  options: SignalOptions<NoInfer<T>> = {}
 ): MutableSignal<T> & { persistInfo: PersistInfo } {
   // Cache for the current computed value (for computed signals)
   let current: { value: T } | undefined;
