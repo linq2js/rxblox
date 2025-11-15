@@ -15,128 +15,143 @@ npm install rxblox
 
 ## The Problem You Know Too Well
 
-You wanted to build a feature. Instead, you're debugging why `useEffect` ran 47 times.
+**Every state change re-runs your entire component.**
 
 ```tsx
-// 😫 Welcome to dependency array hell
-useEffect(() => {
-  fetchData(userId, filters, sortBy);
-}, [userId, filters, sortBy, fetchData]); // 🔥 Infinite loop!
-
-const fetchData = useCallback(
-  async (userId, filters, sortBy) => {
-    // ... actual logic buried here
-  },
-  [apiToken, config, retryCount] // 💀 Change ONE thing, break everything
-);
-```
-
-**Sound familiar?**
-
-- ⚠️ ESLint warnings about missing dependencies
-- 🔥 Infinite re-render loops
-- 🐛 Stale closures at 2 AM
-- 📝 More `useCallback` than business logic
-- 🧠 Mental overhead tracking what triggers what
-
-**You're not writing features. You're babysitting React.**
-
----
-
-## The rxblox Way
-
-What if state management just... worked?
-
-```tsx
-// ✨ This is the ENTIRE code. No tricks.
-import { signal, rx } from "rxblox";
-
-const count = signal(0);
-
+// 😫 Traditional React
 function Counter() {
+  const [count, setCount] = useState(0);
+
+  // 🔄 This ENTIRE function re-executes on every click
+  console.log("Component re-rendered!");
+
+  // All this code runs again and again and again...
+  const expensiveValue = computeSomething(); // Unnecessary!
+
   return (
     <div>
-      <h1>{rx(count)}</h1>
-      <button onClick={() => count.set(count() + 1)}>+1</button>
+      <h1>{count}</h1>
+      <button onClick={() => setCount(count + 1)}>+1</button>
+      <HeavyChart data={expensiveValue} />
     </div>
   );
 }
 ```
 
-**That's it.** No `useState`. No `useCallback`. No dependency arrays. No re-renders.
+**Result?** You reach for optimization tools:
 
-### How It Works
+```tsx
+// Now you need this...
+const expensiveValue = useMemo(() => computeSomething(), []);
+const memoizedChild = useMemo(
+  () => <HeavyChart data={expensiveValue} />,
+  [expensiveValue]
+);
+const handleClick = useCallback(() => setCount((c) => c + 1), []);
+```
+
+**Three lines of logic become nine lines of optimization.**
+
+And we haven't even mentioned dependency arrays yet...
+
+---
+
+## The rxblox Way
+
+**What if only the actual values that changed updated?**
+
+```tsx
+// ✨ rxblox - Zero optimization needed
+import { signal, blox, rx } from "rxblox";
+
+const count = signal(0);
+
+const Counter = blox(() => {
+  // ✅ Definition phase runs ONCE (not on every render)
+  console.log("Blox created!");
+
+  // No useMemo needed - this runs once
+  const expensiveValue = computeSomething();
+
+  // No useCallback needed - functions are stable
+  const increment = () => count.set((x) => x + 1);
+
+  return (
+    <div>
+      {/* ONLY this <h1> updates when count changes */}
+      <h1>{rx(count)}</h1>
+
+      <button onClick={increment}>+1</button>
+
+      {/* 
+        Static child - expensiveValue never changes.
+        If HeavyChart needs reactive props, wrap in rx():
+        {rx(() => <HeavyChart data={someSignal()} />)}
+      */}
+      <HeavyChart data={expensiveValue} />
+    </div>
+  );
+});
+```
+
+**That's it.**
+
+- ✅ Definition phase runs **once** (not on every state change)
+- ✅ Only `{rx(count)}` updates when count changes
+- ✅ No `useMemo`, no `useCallback`, no `memo()`
+- ✅ No optimization needed
+
+### The Real Kicker: Dependency Arrays
+
+Fine-grained updates are nice. But the **real** pain? Data fetching.
 
 **Traditional React:**
 
 ```tsx
-function App() {
-  const [count, setCount] = useState(0);
-
-  // 🔄 ENTIRE function re-runs on every state change
-  console.log("Re-rendered!"); // Logs constantly
-
-  return <div>{count}</div>;
-}
-```
-
-**rxblox:**
-
-```tsx
-const count = signal(0);
-
-const App = blox(() => {
-  // ✅ Runs ONCE on mount
-  console.log("Mounted!"); // Logs once
-
-  return <div>{rx(count)}</div>; // Only THIS updates
-});
-```
-
-**The difference?** Your component body runs **once**. Only the specific UI parts that depend on state re-execute. That's fine-grained reactivity.
-
----
-
-## Zero Dependency Arrays
-
-Remember that data fetching nightmare?
-
-```tsx
-// ❌ Traditional React: Dependency array hell
+// 😫 The dependency array nightmare
 const [userId, setUserId] = useState(1);
 const [filters, setFilters] = useState({});
 
+// Step 1: Wrap in useCallback
 const fetchData = useCallback(async () => {
   const res = await fetch(
     `/api/data?user=${userId}&filters=${JSON.stringify(filters)}`
   );
   return res.json();
-}, [userId, filters]); // Forget one? Bug. Add wrong one? Infinite loop.
+}, [userId, filters]); // ⚠️ Forget one? Stale closure bug.
 
+// Step 2: Add useEffect
 useEffect(() => {
   fetchData();
-}, [fetchData]);
+}, [fetchData]); // 🔥 If this is wrong? Infinite loop.
+
+// Step 3: Fix the infinite loop by adding more arrays...
+// Step 4-10: Debug why it's still broken...
 ```
 
-**rxblox: Zero arrays. Automatic tracking.**
+**Three dependencies. Two arrays. One nightmare.**
+
+**rxblox:**
 
 ```tsx
-// ✅ rxblox: Just write the logic
+// ✨ No arrays. No useCallback. No bugs.
 const userId = signal(1);
 const filters = signal({ status: "active" });
 
 const data = signal.async(async ({ track }) => {
-  const { userId: id, filters: f } = track({ userId, filters });
+  const tracked = track({ userId, filters });
 
-  const res = await fetch(`/api/data?user=${id}&filters=${JSON.stringify(f)}`);
+  const res = await fetch(
+    `/api/data?user=${tracked.id}&filters=${JSON.stringify(tracked.filters)}`
+  );
   return res.json();
 });
 
-// Change userId? Auto re-fetches. Previous request? Auto-canceled.
-userId.set(2); // It just works. 🎉
+// That's it. Change anything? Auto re-fetches. Previous request? Auto-canceled.
+userId.set(2); // Just works. 🎉
 ```
 
-No arrays. No `useCallback`. No bugs. **Just works.**
+**Zero arrays. Zero bugs. Zero frustration.**
 
 ---
 
@@ -205,7 +220,7 @@ function Counter() {
 const count = signal(0);
 
 function Counter() {
-  return <button onClick={() => count.set(count() + 1)}>{rx(count)}</button>;
+  return <button onClick={() => count.set((x) => x + 1)}>{rx(count)}</button>;
 }
 ```
 
@@ -262,38 +277,39 @@ Here's a real search component:
 ```tsx
 import { signal, blox, rx, action } from "rxblox";
 
-// State
-const query = signal("");
-const results = signal([]);
-
-// Action with auto state tracking
-const search = action.cancellable(async (signal, q: string) => {
-  const res = await fetch(`/api/search?q=${q}`, { signal });
-  return res.json();
-});
-
 // Component
 const SearchBox = blox(() => {
+  // State
+  const query = signal("");
+
+  // Action with auto state tracking
+  const search = action.cancellable(async (abortSignal, q: string) => {
+    const res = await fetch(`/api/search?q=${q}`, { signal: abortSignal });
+    return res.json();
+  });
+
   const handleSearch = async (e) => {
     const q = e.target.value;
     query.set(q);
 
     if (q.length < 2) return;
 
-    const data = await search(q); // Previous search auto-canceled
-    results.set(data);
+    search(q); // Previous search auto-canceled
   };
 
   return (
     <div>
-      <input value={rx(query)} onChange={handleSearch} />
+      {/* rx() wraps the entire input to make it reactive */}
+      {rx(() => (
+        <input value={query()} onChange={handleSearch} />
+      ))}
 
       {rx(() => {
         if (search.status === "loading") return <Spinner />;
 
         return (
           <ul>
-            {results().map((item) => (
+            {search.result.map((item) => (
               <li key={item.id}>{item.name}</li>
             ))}
           </ul>
@@ -384,9 +400,16 @@ const MyForm = blox(() => {
 
   return (
     <form onSubmit={handleSubmit}>
-      <input value={rx(name)} onChange={(e) => name.set(e.target.value)} />
-      <input value={rx(email)} onChange={(e) => email.set(e.target.value)} />
-      <button disabled={rx(() => !isValid())}>Submit</button>
+      {/* Wrap inputs in rx() to make them reactive */}
+      {rx(() => (
+        <input value={name()} onChange={(e) => name.set(e.target.value)} />
+      ))}
+      {rx(() => (
+        <input value={email()} onChange={(e) => email.set(e.target.value)} />
+      ))}
+      {rx(() => (
+        <button disabled={!isValid()}>Submit</button>
+      ))}
     </form>
   );
 });

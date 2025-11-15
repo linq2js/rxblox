@@ -243,7 +243,10 @@ const TodoItem = blox<{ todo: Todo }>((props) => {
 
   return (
     <div>
-      <input type="checkbox" checked={completed()} onChange={toggle} />
+      {/* Wrap checkbox in rx() to make checked state reactive */}
+      {rx(() => (
+        <input type="checkbox" checked={completed()} onChange={toggle} />
+      ))}
       {rx(() => (
         <span style={{ textDecoration: completed() ? "line-through" : "none" }}>
           {props.todo.title}
