@@ -26,6 +26,7 @@ Complete API documentation for all rxblox functions and utilities.
 - [action](#action)
 - [action.cancellable](#actioncancellable)
 - [action.aborter](#actionaborter)
+- [useAction](#useactiont)
 - [useSignals](#usesignalst)
 - [useTracked](#usetrackedt)
 
@@ -872,6 +873,206 @@ ac.abort();
 // Reset to a fresh controller
 ac.reset();
 ```
+
+---
+
+## `useAction<T>(actionOrFn, options?)`
+
+React hook that makes actions reactive in components and custom hooks.
+
+This hook provides two modes of operation:
+
+**Mode 1: Reactive Global Action**
+- Pass an existing Action object (e.g., from module scope)
+- The hook subscribes to the action and triggers re-renders on state changes
+- Useful for sharing actions across multiple components
+
+**Mode 2: Local Action Creation**
+- Pass an action function with optional options
+- The hook creates a cancellable action automatically
+- The action is scoped to the component instance
+- Useful for component-specific async operations
+
+### Parameters
+
+- `actionOrFn`: Either an existing `Action` object or a function `(abortSignal, ...args) => result`
+- `options?`: Optional `ActionOptions<T>` for callbacks (`on: { init, loading, success, error, done, reset }`)
+
+### Returns
+
+`Action<TArgs, TResult>` - The action object with reactive subscription
+
+### Key Features
+
+- ✅ **Automatic reactivity** - Component re-renders when action state changes
+- ✅ **Two modes** - Use global actions or create local ones
+- ✅ **Microtask debouncing** - Batches multiple state changes into one render
+- ✅ **TypeScript support** - Full type inference for parameters and results
+- ✅ **No auto-cancellation** - Actions continue running after component unmounts (especially important for global actions)
+
+### Examples
+
+**Example 1: Using Global Action**
+
+```tsx
+import { cancellableAction, useAction } from "rxblox";
+
+// store.ts - Global action
+export const fetchUser = cancellableAction(async (signal, id: number) => {
+  const response = await fetch(`/api/users/${id}`, { signal });
+  return response.json();
+});
+
+// Component.tsx - Make it reactive
+const UserProfile = ({ userId }: { userId: number }) => {
+  const fetchUserAction = useAction(fetchUser);
+  
+  return (
+    <div>
+      <button onClick={() => fetchUserAction(userId)}>
+        Load User
+      </button>
+      
+      {fetchUserAction.status === 'loading' && <div>Loading...</div>}
+      
+      {fetchUserAction.error && (
+        <div>Error: {fetchUserAction.error.message}</div>
+      )}
+      
+      {fetchUserAction.result && (
+        <div>
+          <h2>{fetchUserAction.result.name}</h2>
+          <p>{fetchUserAction.result.email}</p>
+        </div>
+      )}
+    </div>
+  );
+};
+```
+
+**Example 2: Creating Local Action**
+
+```tsx
+import { useAction } from "rxblox";
+
+const SearchComponent = () => {
+  // Create local action scoped to this component
+  const searchAction = useAction(
+    async (signal, query: string) => {
+      const response = await fetch(`/api/search?q=${query}`, { signal });
+      return response.json();
+    },
+    {
+      on: {
+        success: (results) => console.log('Found:', results.length),
+        error: (error) => console.error('Search failed:', error)
+      }
+    }
+  );
+
+  return (
+    <div>
+      <input 
+        onChange={(e) => searchAction(e.target.value)}
+        placeholder="Search..."
+      />
+      
+      {searchAction.status === 'loading' && <div>Searching...</div>}
+      
+      {searchAction.result?.map(item => (
+        <div key={item.id}>{item.name}</div>
+      ))}
+    </div>
+  );
+};
+```
+
+**Example 3: With Loading States**
+
+```tsx
+const UploadComponent = () => {
+  const uploadAction = useAction(async (signal, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    const response = await fetch('/api/upload', {
+      method: 'POST',
+      body: formData,
+      signal
+    });
+    
+    return response.json();
+  });
+
+  return (
+    <div>
+      <input 
+        type="file" 
+        onChange={(e) => uploadAction(e.target.files[0])}
+        disabled={uploadAction.status === 'loading'}
+      />
+      
+      {uploadAction.status === 'loading' && <progress />}
+      {uploadAction.status === 'error' && <div>Upload failed!</div>}
+      {uploadAction.result && <div>Uploaded: {uploadAction.result.url}</div>}
+    </div>
+  );
+};
+```
+
+**Example 4: Shared Global Action Across Components**
+
+```tsx
+// store.ts
+export const deleteUser = cancellableAction(async (signal, id: number) => {
+  await fetch(`/api/users/${id}`, { 
+    method: 'DELETE',
+    signal 
+  });
+});
+
+// UserList.tsx
+const UserList = () => {
+  const deleteAction = useAction(deleteUser);
+  
+  return (
+    <div>
+      {users.map(user => (
+        <button onClick={() => deleteAction(user.id)}>
+          Delete {user.name}
+        </button>
+      ))}
+      
+      {deleteAction.status === 'loading' && <div>Deleting...</div>}
+    </div>
+  );
+};
+
+// UserDetail.tsx - Same action, different component
+const UserDetail = ({ userId }) => {
+  const deleteAction = useAction(deleteUser);
+  
+  return (
+    <div>
+      <button onClick={() => deleteAction(userId)}>Delete</button>
+      {deleteAction.status === 'loading' && <span>Deleting...</span>}
+    </div>
+  );
+};
+
+// Both components see the same action state!
+```
+
+**Action Properties:**
+
+- `action.status` - Current status: `"idle"` | `"loading"` | `"success"` | `"error"`
+- `action.result` - Last successful result (`undefined` if not succeeded yet)
+- `action.error` - Last error (`undefined` if no error yet)
+- `action.calls` - Number of times the action has been called
+- `action.on(listener)` - Subscribe to state changes
+- `action.reset()` - Reset to idle state
+- `action.cancel()` - Cancel running action (for cancellable actions only)
+- `action.cancelled` - Whether action was cancelled (for cancellable actions only)
 
 ---
 

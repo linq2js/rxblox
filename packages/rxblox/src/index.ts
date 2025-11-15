@@ -41,6 +41,7 @@ export { useTracked } from "./useTracked";
 export type { Tracked } from "./useTracked";
 export { useSignals } from "./useSignals";
 export type { UseSignalsResult, UseSignalsOptions } from "./useSignals";
+export { useAction } from "./useAction";
 export * from "./loadable";
 export { wait, type Awaitable } from "./wait";
 export { diff } from "./diff";
