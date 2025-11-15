@@ -303,7 +303,7 @@ describe("useSignals", () => {
 
     it("should handle empty object", () => {
       const Component = () => {
-        const signals = useSignals({});
+        useSignals({});
 
         return <div>Empty</div>;
       };
