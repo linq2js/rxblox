@@ -293,8 +293,8 @@ const SearchBox = blox(() => {
     query.set(q);
 
     if (q.length < 2) return;
-
-    search(q); // Previous search auto-canceled
+    // want cancel previous search? call search.cancel()
+    search(q);
   };
 
   return (
