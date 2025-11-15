@@ -16,6 +16,11 @@ Start here if you're new to rxblox:
 1. **[Installation & Quick Start](../README.md#installation)** - Get up and running in minutes
 2. **[Why rxblox?](../README.md#why-rxblox)** - Understanding the motivation and benefits
 3. **[The Dependency Array Problem](../README.md#-the-dependency-array-problem)** - See how rxblox solves React's biggest pain point
+4. **[React-Compatible Hooks](./react-compatible-hooks.md)** - Use rxblox with familiar React patterns
+   - `rx()` - Reactive expressions in JSX
+   - `useTracked()` - Conditional signal tracking
+   - `useSignals()` - Manual signal control
+   - `useAction()` - Reactive async operations
 
 ### Core Documentation
 
@@ -135,6 +140,7 @@ Help make rxblox better:
 **I want to...**
 
 - **Learn the basics** → Start with [Core Concepts](./core-concepts.md)
+- **Use familiar React patterns** → Try [React-Compatible Hooks](./react-compatible-hooks.md)
 - **See all APIs** → Go to [API Reference](./api-reference.md)
 - **Persist state to storage** → Read [Signal Persistence](./PERSISTENCE.md)
 - **Solve a specific problem** → Check [Patterns & Best Practices](./patterns.md)
@@ -149,7 +155,9 @@ Help make rxblox better:
 **Beginner** (New to rxblox)
 1. [Why rxblox?](../README.md#why-rxblox)
 2. [Quick Start](../README.md#quick-start)
-3. [Core Concepts](./core-concepts.md) - Read sections 1-5
+3. Choose your path:
+   - **Prefer React patterns?** → [React-Compatible Hooks](./react-compatible-hooks.md)
+   - **Want fine-grained control?** → [Core Concepts](./core-concepts.md) - Read sections 1-5
 4. [Common Patterns](./patterns.md#common-patterns)
 
 **Intermediate** (Building apps)

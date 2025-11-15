@@ -425,6 +425,7 @@ const MyForm = blox(() => {
 
 ### Essential Guides
 
+- **[React-Compatible Hooks](https://github.com/linq2js/rxblox/blob/main/packages/rxblox/docs/react-compatible-hooks.md)** - Use rxblox with familiar React patterns (perfect for beginners!)
 - **[Core Concepts](https://github.com/linq2js/rxblox/blob/main/packages/rxblox/docs/core-concepts.md)** - Master the fundamentals in 10 minutes
 - **[API Reference](https://github.com/linq2js/rxblox/blob/main/packages/rxblox/docs/api-reference.md)** - Every function, every option
 - **[Patterns & Best Practices](https://github.com/linq2js/rxblox/blob/main/packages/rxblox/docs/patterns.md)** - Real-world patterns that work
