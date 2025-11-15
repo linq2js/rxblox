@@ -9,14 +9,14 @@ describe("useAction", () => {
   describe("Mode 1: Global Action (Reactive)", () => {
     it("should make global action reactive", async () => {
       // Create global action
-      const fetchData = cancellableAction(async (signal: AbortSignal) => {
+      const fetchData = cancellableAction(async (_signal: AbortSignal) => {
         await delay(10);
         return { data: "success" };
       });
 
       const Component = () => {
         const dataAction = useAction(fetchData);
-        
+
         return (
           <div>
             <div data-testid="status">{dataAction.status}</div>
@@ -27,7 +27,7 @@ describe("useAction", () => {
       };
 
       const { getByTestId, getByText } = render(<Component />);
-      
+
       expect(getByTestId("status").textContent).toBe("idle");
       expect(getByTestId("data").textContent).toBe("none");
 
@@ -49,10 +49,12 @@ describe("useAction", () => {
     });
 
     it("should share action state across components", async () => {
-      const sharedAction = cancellableAction(async (signal: AbortSignal, value: number) => {
-        await delay(10);
-        return value * 2;
-      });
+      const sharedAction = cancellableAction(
+        async (_signal: AbortSignal, value: number) => {
+          await delay(10);
+          return value * 2;
+        }
+      );
 
       const Component1 = () => {
         const myAction = useAction(sharedAction);
@@ -95,7 +97,7 @@ describe("useAction", () => {
 
       const Component = () => {
         const myAction = useAction(failingAction);
-        
+
         return (
           <div>
             <div data-testid="error">{myAction.error?.message || "none"}</div>
@@ -123,7 +125,7 @@ describe("useAction", () => {
 
       const Component = () => {
         const localAction = useAction(myAction);
-        
+
         return (
           <div>
             <div data-testid="data">{localAction.result || "none"}</div>
@@ -156,10 +158,12 @@ describe("useAction", () => {
   describe("Mode 2: Local Action Creation", () => {
     it("should create local action from function", async () => {
       const Component = () => {
-        const myAction = useAction(async (signal: AbortSignal, value: number) => {
-          await delay(10);
-          return value * 2;
-        });
+        const myAction = useAction(
+          async (_signal: AbortSignal, value: number) => {
+            await delay(10);
+            return value * 2;
+          }
+        );
 
         return (
           <div>
@@ -256,9 +260,11 @@ describe("useAction", () => {
       });
 
       await waitFor(() => {
-        expect(onError).toHaveBeenCalledWith(expect.objectContaining({
-          message: "Failed"
-        }));
+        expect(onError).toHaveBeenCalledWith(
+          expect.objectContaining({
+            message: "Failed",
+          })
+        );
       });
 
       expect(onDone).toHaveBeenCalled();
@@ -267,11 +273,13 @@ describe("useAction", () => {
     it("should use latest function on each run", async () => {
       const Component = () => {
         const [multiplier, setMultiplier] = React.useState(2);
-        
-        const myAction = useAction(async (signal: AbortSignal, value: number) => {
-          await delay(10);
-          return value * multiplier; // Uses current multiplier
-        });
+
+        const myAction = useAction(
+          async (_signal: AbortSignal, value: number) => {
+            await delay(10);
+            return value * multiplier; // Uses current multiplier
+          }
+        );
 
         return (
           <div>
@@ -307,7 +315,7 @@ describe("useAction", () => {
 
     it("should create separate actions for each component instance", async () => {
       const Component = ({ id }: { id: number }) => {
-        const myAction = useAction(async (signal: AbortSignal) => {
+        const myAction = useAction(async (_signal: AbortSignal) => {
           await delay(10);
           return `result-${id}`;
         });
@@ -387,7 +395,7 @@ describe("useAction", () => {
 
   describe("Cleanup", () => {
     it("should cleanup subscription on unmount", async () => {
-      const myAction = cancellableAction(async () => {
+      const myAction = cancellableAction(() => {
         return "data";
       });
 
@@ -409,7 +417,7 @@ describe("useAction", () => {
 
       const Component = () => {
         renderSpy();
-        
+
         const myAction = useAction(async () => {
           await delay(10);
           return "result";

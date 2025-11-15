@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, waitFor, act } from "@testing-library/react";
-import React, { useState } from "react";
+import { useState } from "react";
 import { useSignals } from "./useSignals";
 import { MutableSignal } from "./types";
 

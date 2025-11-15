@@ -19,7 +19,7 @@ export type Action<TArgs extends readonly any[] = any[], TResult = any> = {
   /** Current status of the action */
   readonly status: "idle" | "loading" | "success" | "error";
   /** The last successful result (undefined if no success yet) */
-  readonly result: TResult | undefined;
+  readonly result: Awaited<TResult> | undefined;
   /** The last error (undefined if no error yet) */
   readonly error: Error | undefined;
   /** Number of times the action has been called */
@@ -171,7 +171,7 @@ export function action<TResult = void, TArgs extends readonly any[] = any[]>(
               if (token === myToken) {
                 result.set(loadable("success", data));
                 options.on?.success?.(data);
-                options.on?.done?.(undefined, data);
+                options.on?.done?.(undefined, data as any);
               }
               // Always return data for this specific promise
               resolve(data);
