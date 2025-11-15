@@ -1,6 +1,6 @@
 {
   "name": "rxblox",
-  "version": "1.15.0",
+  "version": "1.16.0",
   "description": "A reactive state management library",
   "type": "module",
   "main": "./dist/rxblox.umd.js",
@@ -23,11 +23,15 @@
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage --no-watch",
     "dry": "npm pack --dry-run",
-    "version:minor": "pnpm version minor",
-    "version:major": "pnpm version major",
-    "prepublishOnly": "pnpm build",
-    "pub:minor": "pnpm version minor && npm publish",
-    "pub:major": "pnpm version major && npm publish"
+    "preversion": "npm test && npm run build",
+    "version:patch": "npm version patch -m \"chore: bump version to %s\"",
+    "version:minor": "npm version minor -m \"chore: bump version to %s\"",
+    "version:major": "npm version major -m \"chore: bump version to %s\"",
+    "postversion": "git push && git push --tags",
+    "prepublishOnly": "npm run build",
+    "pub:patch": "npm run version:patch && npm publish",
+    "pub:minor": "npm run version:minor && npm publish",
+    "pub:major": "npm run version:major && npm publish"
   },
   "keywords": [
     "state",
