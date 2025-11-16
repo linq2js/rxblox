@@ -51,3 +51,4 @@ export type { Persistor, PersistStatus, PersistInfo } from "./types";
 export { type Emitter, emitter } from "./emitter";
 export { tag } from "./tag";
 export type { Tag } from "./tag";
+export { batch } from "./batchDispatcher";

@@ -11,6 +11,7 @@ Complete API documentation for all rxblox functions and utilities.
 - [Signal Persistence](#signal-persistence)
 - [Signal Tagging](#signal-tagging)
 - [diff](#difft)
+- [batch](#batch)
 - [effect](#effect)
 - [rx](#rx)
 - [blox](#blox)
@@ -1930,6 +1931,153 @@ const trackChange = () => {
 - Arrays: Returns entire array if any element changed (not individual element diffs)
 - Returns `undefined` if values are identical
 - Handles `Date`, `RegExp`, and other special objects by reference
+
+---
+
+## `batch(fn)`
+
+Groups multiple signal updates into a single operation, preventing unnecessary recomputations and re-renders.
+
+**Parameters:**
+- `fn: () => T` - Function containing signal updates
+
+**Returns:** `T` - The return value of `fn`
+
+```tsx
+import { batch, signal } from "rxblox";
+
+const a = signal(1);
+const b = signal(2);
+const sum = signal(() => a() + b());
+
+// Without batch: sum recomputes twice
+a.set(10);  // sum recomputes → 12
+b.set(20);  // sum recomputes → 30
+
+// With batch: sum recomputes once
+batch(() => {
+  a.set(10);
+  b.set(20);
+}); // sum recomputes once → 30
+```
+
+**Key Features:**
+
+1. **Deferred Notifications** - Signal listeners are queued and notified after batch completes
+2. **Async Recomputation** - Computed signals mark as dirty and recompute in a microtask
+3. **Stale Values During Batch** - Accessing computed signals during batch returns last computed value
+4. **Nested Batch Support** - Automatically tracks batch depth for nested batches
+5. **Error Handling** - Notifications flush even if `fn` throws an error
+
+**Preventing Inconsistent State:**
+
+```tsx
+// Problem: Multiple related signals
+const keys = signal(["a", "b", "c"]);
+const values = signal({ a: 1, b: 2, c: 3 });
+
+const mapped = signal(() => {
+  const k = keys();
+  const v = values();
+  return k.map((key) => v[key]);
+});
+
+// ❌ Without batch - inconsistent intermediate state
+keys.set(["a", "b"]);        // mapped recomputes, sees mismatched keys/values
+values.set({ a: 10, b: 20 }); // mapped recomputes again
+
+// ✅ With batch - consistent state
+batch(() => {
+  keys.set(["a", "b"]);
+  values.set({ a: 10, b: 20 });
+}); // mapped recomputes once with consistent state
+```
+
+**Nested Batches:**
+
+```tsx
+const count = signal(0);
+
+batch(() => {
+  count.set(1);
+  
+  batch(() => {
+    count.set(2);
+    
+    batch(() => {
+      count.set(3);
+    });
+  });
+  
+  // Still inside outer batch
+});
+
+// All notifications fire after outermost batch completes
+```
+
+**With React Components:**
+
+```tsx
+const Counter = blox(() => {
+  const count = signal(0);
+  const doubled = signal(() => count() * 2);
+
+  const incrementTwice = () => {
+    batch(() => {
+      count.set(count() + 1);
+      count.set(count() + 1);
+    });
+    // Component re-renders once, not twice
+  };
+
+  return rx(() => (
+    <div>
+      <div>Count: {count()}</div>
+      <div>Doubled: {doubled()}</div>
+      <button onClick={incrementTwice}>+2</button>
+    </div>
+  ));
+});
+```
+
+**Best Practices:**
+
+✅ **Do:**
+- Batch related signal updates
+- Use in performance-critical paths (loops, event handlers)
+- Batch to prevent inconsistent intermediate states
+
+❌ **Don't:**
+- Batch single signal updates (unnecessary overhead)
+- Expect async operations to be batched (they run outside the batch)
+- Over-batch everything
+
+**Alternative: Combined State**
+
+For tightly coupled state, consider a single signal instead:
+
+```tsx
+// Instead of batching separate signals
+const keys = signal([...]);
+const values = signal({...});
+
+batch(() => {
+  keys.set([...]);
+  values.set({...});
+});
+
+// Better: Single signal with structured data
+const state = signal({ keys: [...], values: {...} });
+
+state.set((draft) => {
+  draft.keys = [...];
+  draft.values = {...};
+}); // Atomic update, no batch needed
+```
+
+**See Also:**
+- [Batching Guide](./batching.md) - Comprehensive batching documentation
+- [Performance Best Practices](../README.md#performance-best-practices)
 
 ---
 

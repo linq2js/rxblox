@@ -1,7 +1,6 @@
-import { debounce } from "lodash-es";
-import { Persistor, signal } from "rxblox";
+import { debounce, remove } from "lodash-es";
+import { batch, Persistor, signal } from "rxblox";
 import shallowEqual from "shallowequal";
-
 /**
  * Filter types for displaying todos.
  */
@@ -51,86 +50,67 @@ export function createTodoStore() {
    * - Debounced to batch multiple rapid changes
    * - Note: JSON.stringify automatically calls toJSON() on signals
    */
-  const persist: Persistor<Todo[]> = {
-    get() {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        console.log("todos loaded");
-        return {
-          value: (JSON.parse(stored) as Todo[]).map((todo) => todo),
-        };
-      }
-      console.log("no todos found");
-      return null;
-    },
-    set: debounce((value: Todo[]) => {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
-      console.log("todos saved");
-    }, 300),
+  const persistor = <T>(postfix: string = ""): Persistor<T> => {
+    const key = STORAGE_KEY + "_" + postfix;
+    return {
+      get() {
+        const stored = localStorage.getItem(key);
+        if (stored) {
+          console.log("todos loaded");
+          return {
+            value: JSON.parse(stored),
+          };
+        }
+        console.log("no todos found");
+        return null;
+      },
+      set: debounce((value) => {
+        localStorage.setItem(key, JSON.stringify(value));
+        console.log("todos saved");
+      }, 300),
+    };
   };
 
-  /**
-   * Main todos signal with persistence.
-   * Contains an array of signals, where each signal holds one todo.
-   */
-  const todos = signal<Todo[]>([], { persist });
+  const keys = signal<string[]>([], { persist: persistor("keys") });
+  const values = signal<Record<string, Todo>>(
+    {},
+    { persist: persistor("values") }
+  );
 
   /**
    * Current filter for displaying todos.
    */
   const filter = signal<TodoFilter>("all");
-  const activeTodos = signal(
-    () => {
-      return todos().filter((todo) => !todo.completed);
-    },
-    { equals: shallowEqual }
-  );
-  const completedTodos = signal(
-    () => {
-      return todos().filter((todo) => todo.completed);
-    },
-    { equals: shallowEqual }
-  );
 
-  const allCompleted = signal(
+  const active = signal(
     () => {
-      return todos().every((todo) => todo.completed);
+      const k = keys();
+      const v = values();
+      return k.filter((k) => !v[k].completed);
     },
     { equals: shallowEqual }
   );
 
-  const updateTodo = (
-    filter: (todo: Todo) => boolean,
-    updater: (todo: Todo) => void | "remove",
-    count = -1
-  ) => {
-    const removed: number[] = [];
+  const completed = signal(
+    () => {
+      const k = keys();
+      const v = values();
+      return k.filter((k) => v[k].completed);
+    },
+    { equals: shallowEqual }
+  );
 
-    todos.set((draft) => {
-      draft.forEach((todo, index) => {
-        if (filter(todo)) {
-          if (count === 0) return;
-          if (count > 0) {
-            count--;
-          }
-          if (updater(todo) === "remove") {
-            removed.push(index);
-          }
-        }
-      });
-
-      while (removed.length > 0) {
-        draft.splice(removed.pop()!, 1);
-      }
-    });
-  };
+  const allCompleted = signal(() => {
+    return completed().length === keys().length;
+  });
 
   return {
     // Expose state
-    todos,
+    keys,
+    values,
     filter,
-    activeTodos,
-    completedTodos,
+    active,
+    completed,
     allCompleted,
 
     /**
@@ -144,10 +124,9 @@ export function createTodoStore() {
     addTodo(text: string) {
       const trimmed = text.trim();
       if (!trimmed) return;
-
-      todos.set((draft) => {
-        draft.push(createTodo(trimmed));
-      });
+      const todo = createTodo(trimmed);
+      values.set((prev) => ({ ...prev, [todo.id]: todo }));
+      keys.set((prev) => [...prev, todo.id]);
     },
 
     /**
@@ -159,11 +138,14 @@ export function createTodoStore() {
      * @param id - The ID of the todo to remove
      */
     removeTodo(id: string) {
-      updateTodo(
-        (todo) => todo.id === id,
-        () => "remove",
-        1
-      );
+      batch(() => {
+        keys.set((draft) => {
+          remove(draft, (x) => x === id);
+        });
+        values.set((draft) => {
+          delete draft[id];
+        });
+      });
     },
 
     /**
@@ -178,13 +160,9 @@ export function createTodoStore() {
      * @param id - The ID of the todo to toggle
      */
     toggleTodo(id: string) {
-      updateTodo(
-        (todo) => todo.id === id,
-        (todo) => {
-          todo.completed = !todo.completed;
-        },
-        1
-      );
+      values.set((draft) => {
+        draft[id].completed = !draft[id].completed;
+      });
     },
 
     /**
@@ -198,13 +176,9 @@ export function createTodoStore() {
      * @param text - The new text content
      */
     updateTodoText(id: string, text: string) {
-      updateTodo(
-        (todo) => todo.id === id,
-        (todo) => {
-          todo.text = text;
-        },
-        1
-      );
+      values.set((draft) => {
+        draft[id].text = text;
+      });
     },
 
     /**
@@ -217,14 +191,13 @@ export function createTodoStore() {
      * Must manually emit onTodosChange to trigger persistence.
      */
     toggleAll() {
-      const allCompleted = todos().every((todo) => todo.completed);
+      const completed = !allCompleted.peek();
 
-      updateTodo(
-        () => true,
-        (todo) => {
-          todo.completed = !allCompleted;
-        }
-      );
+      values.set((draft) => {
+        keys.peek().forEach((key) => {
+          draft[key].completed = completed;
+        });
+      });
     },
 
     /**
@@ -234,10 +207,15 @@ export function createTodoStore() {
      * No need to emit onTodosChange since the array itself changes.
      */
     clearCompleted() {
-      updateTodo(
-        (todo) => todo.completed,
-        () => "remove"
-      );
+      const completedKeys = completed.peek();
+      values.set((draft) => {
+        completedKeys.forEach((key) => {
+          if (draft[key].completed) {
+            delete draft[key];
+          }
+        });
+      });
+      keys.set((prev) => prev.filter((key) => !completedKeys.includes(key)));
     },
     setFilterCompleted() {
       filter.set("completed");

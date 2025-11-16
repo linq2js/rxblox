@@ -1,17 +1,23 @@
 import { blox, rx, signal } from "rxblox";
 import { todoStore } from "../store/todoStore";
-import { Todo } from "../store/createTodoStore";
+import shallowEqual from "shallowequal";
 
-type TodoItemProps = Todo;
+interface TodoItemProps {
+  id: string;
+}
 
 export const TodoItem = blox((props: TodoItemProps) => {
+  const todo = signal(() => todoStore.values()[props.id], {
+    equals: shallowEqual,
+  });
+
   // Use signals instead of useState in blox components
   const editing = signal(false);
   const editText = signal("");
 
   const handleDoubleClick = () => {
     editing.set(true);
-    editText.set(props.text);
+    editText.set(todo.peek().text);
   };
 
   const handleSubmit = () => {
@@ -28,7 +34,7 @@ export const TodoItem = blox((props: TodoItemProps) => {
     if (e.key === "Enter") {
       handleSubmit();
     } else if (e.key === "Escape") {
-      editText.set(props.text);
+      editText.set(todo.peek().text);
       editing.set(false);
     }
   };
@@ -65,7 +71,7 @@ export const TodoItem = blox((props: TodoItemProps) => {
 
   const textPart = rx(() => {
     console.log("rendering textPart", Math.random());
-    return <label onDoubleClick={handleDoubleClick}>{props.text}</label>;
+    return <label onDoubleClick={handleDoubleClick}>{todo().text}</label>;
   });
 
   const removePart = <button className="destroy" onClick={handleRemove} />;
@@ -74,21 +80,25 @@ export const TodoItem = blox((props: TodoItemProps) => {
     <input
       className="toggle"
       type="checkbox"
-      checked={props.completed}
+      checked={todo().completed}
       onChange={handleToggle}
     />
   ));
 
-  return rx(() => (
-    <li
-      className={`${props.completed && "completed"} ${editing() && "editing"}`}
-    >
-      <div className="view">
-        {inputPart}
-        {textPart}
-        {removePart}
-      </div>
-      {editPart}
-    </li>
-  ));
+  return rx(() => {
+    return (
+      <li
+        className={`${todo().completed && "completed"} ${
+          editing() && "editing"
+        }`}
+      >
+        <div className="view">
+          {inputPart}
+          {textPart}
+          {removePart}
+        </div>
+        {editPart}
+      </li>
+    );
+  });
 });

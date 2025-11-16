@@ -14,6 +14,7 @@ import { emitter } from "./emitter";
 import { getDispatcher, withDispatchers } from "./dispatcher";
 import { disposableToken } from "./disposableDispatcher";
 import { isPromiseLike } from "./isPromiseLike";
+import { batchToken } from "./batchDispatcher";
 
 /**
  * Context provided to computed signal functions.
@@ -234,6 +235,15 @@ export function signal<T>(
   };
 
   const recompute = () => {
+    if (getDispatcher(batchToken)) {
+      current = undefined;
+      isDirty = true;
+      Promise.resolve().then(() => {
+        if (current) return;
+        recompute();
+      });
+      return;
+    }
     const prev = current;
     const nextValue = compute();
     if (!prev || !equals(prev.value, nextValue)) {
@@ -292,8 +302,16 @@ export function signal<T>(
       if (shouldMarkDirty) {
         isDirty = true; // Mark as dirty
       }
-      // Notify all listeners (use slice() to avoid issues if listeners modify the array)
-      onChange.emit(nextValue);
+      const batchDispatcher = getDispatcher(batchToken);
+      if (batchDispatcher) {
+        batchDispatcher.enqueue(() => {
+          onChange.emit(nextValue);
+        }, s);
+      } else {
+        // Notify all listeners (use slice() to avoid issues if listeners modify the array)
+        onChange.emit(nextValue);
+      }
+
       // Persist the new value
       if (shouldPersist) {
         persistValue(nextValue);

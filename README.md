@@ -357,4 +357,40 @@ This is fine because:
 - ❌ Over-optimize with too many tiny `rx()` blocks
 - ❌ Create `rx()` blocks for static content
 
+### 3. Batch Related Updates
+
+Use `batch()` to group multiple signal updates, preventing unnecessary recomputations:
+
+```tsx
+import { batch, signal } from "rxblox";
+
+const firstName = signal("John");
+const lastName = signal("Doe");
+const fullName = signal(() => `${firstName()} ${lastName()}`);
+
+// ❌ Without batch: fullName recomputes twice
+firstName.set("Jane");
+lastName.set("Smith");
+
+// ✅ With batch: fullName recomputes once
+batch(() => {
+  firstName.set("Jane");
+  lastName.set("Smith");
+});
+```
+
+**When to use `batch()`:**
+- ✅ Updating multiple related signals
+- ✅ Performance-critical paths (loops, event handlers)
+- ✅ Preventing inconsistent intermediate states
+
+For more details, see the [Batching Guide](./packages/rxblox/docs/batching.md).
+
 For more examples, see the TodoMVC implementation in `packages/rxblox-todo`.
+
+## Documentation
+
+- [API Reference](./packages/rxblox/docs/api-reference.md) - Complete API documentation
+- [Batching Guide](./packages/rxblox/docs/batching.md) - How to batch updates efficiently
+- [Patterns & Best Practices](./packages/rxblox/docs/patterns.md) - Common patterns and tips
+- [vs. Other Libraries](./packages/rxblox/docs/comparisons.md) - Feature comparison with other state libraries
