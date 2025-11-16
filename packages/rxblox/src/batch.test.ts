@@ -75,7 +75,7 @@ describe("batch", () => {
 
   it("should prevent inconsistent state during batch", async () => {
     const keys = signal(["a", "b", "c"]);
-    const values = signal({ a: 1, b: 2, c: 3 });
+    const values = signal<Record<string, number>>({ a: 1, b: 2, c: 3 });
 
     const mapped = signal(() => {
       const k = keys();
@@ -89,7 +89,9 @@ describe("batch", () => {
     // Update both in a batch
     batch(() => {
       keys.set(["a", "b"]); // Remove 'c'
-      values.set({ a: 10, b: 20 }); // Remove 'c' value
+      values.set((draft) => {
+        delete draft["c"];
+      });
     });
 
     await Promise.resolve();
@@ -361,4 +363,3 @@ describe("batch", () => {
     expect(computeFn).toHaveBeenCalledTimes(1);
   });
 });
-
