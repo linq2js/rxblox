@@ -90,6 +90,8 @@ describe("batch", () => {
     batch(() => {
       keys.set(["a", "b"]); // Remove 'c'
       values.set((draft) => {
+        draft["a"] = 10;
+        draft["b"] = 20;
         delete draft["c"];
       });
     });
