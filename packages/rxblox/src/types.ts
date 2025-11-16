@@ -143,10 +143,10 @@ export type MutableSignal<T> = Signal<T> & {
 
   /**
    * Hydrates the signal value from storage.
-   * Only present when the signal is created with a `persist` option.
+   * Do nothing if no persistor is provided.
    * @see Persistor
    */
-  hydrate?(): void;
+  hydrate(): void;
 
   /**
    * Casts the current signal to a readonly signal, preventing consumers from calling mutation methods
