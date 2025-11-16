@@ -1,12 +1,12 @@
 import { useState } from "react";
-import { addTodo } from "../store/todos";
+import { todoStore } from "../store/todoStore";
 
 export function Header() {
   const [input, setInput] = useState("");
 
   const handleSubmit = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
-      addTodo(input);
+      todoStore.addTodo(input);
       setInput("");
     }
   };

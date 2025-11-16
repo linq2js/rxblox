@@ -4,10 +4,12 @@
   "private": true,
   "scripts": {
     "dev": "pnpm --filter rxblox-demo dev",
+    "dev:todo": "concurrently \"pnpm --filter rxblox build:watch\" \"pnpm --filter rxblox-todo dev\"",
     "build": "pnpm --filter rxblox build",
     "test": "pnpm --filter rxblox test"
   },
   "devDependencies": {
+    "concurrently": "^8.2.2",
     "typescript": "^5.3.3"
   },
   "engines": {

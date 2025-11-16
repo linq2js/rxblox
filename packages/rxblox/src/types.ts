@@ -227,22 +227,28 @@ export type Ref<T> = {
  *
  * @template T - The type of value being persisted
  */
-export interface Persistor<T> {
+export interface Persistor<T = any> {
   /**
    * Retrieves the persisted value from storage.
+   *
+   * This method is optional because some persistors may only handle writes
+   * (e.g., when the signal value is hydrated from another source).
    *
    * @returns Object with `value` property if found, `null` if no value stored, or a Promise resolving to either
    * @throws Error if read operation fails
    */
-  get(): { value: T } | null | Promise<{ value: T } | null>;
+  get?(): { value: T } | null | Promise<{ value: T } | null>;
 
   /**
    * Saves a value to persistent storage.
    *
+   * This method is optional because some persistors may only handle reads
+   * (e.g., when the signal value is saved to another source).
+   *
    * @param value - The value to persist
    * @throws Error if write operation fails
    */
-  set(value: T): void | Promise<void>;
+  set?(value: T): void | Promise<void>;
 
   /**
    * Optional: Subscribe to external storage changes (e.g., from other tabs).

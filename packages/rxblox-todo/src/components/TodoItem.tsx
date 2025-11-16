@@ -1,27 +1,26 @@
 import { blox, rx, signal } from "rxblox";
-import { Todo, removeTodo, toggleTodo, updateTodoText } from "../store/todos";
+import { todoStore } from "../store/todoStore";
+import { Todo } from "../store/createTodoStore";
 
-interface TodoItemProps {
-  todo: Todo;
-}
+type TodoItemProps = Todo;
 
-export const TodoItem = blox<TodoItemProps>(({ todo }) => {
+export const TodoItem = blox((props: TodoItemProps) => {
   // Use signals instead of useState in blox components
   const editing = signal(false);
   const editText = signal("");
 
   const handleDoubleClick = () => {
     editing.set(true);
-    editText.set(todo.text());
+    editText.set(props.text);
   };
 
   const handleSubmit = () => {
     const trimmed = editText().trim();
     if (trimmed) {
-      updateTodoText(todo.id, trimmed);
+      todoStore.updateTodoText(props.id, trimmed);
       editing.set(false);
     } else {
-      removeTodo(todo.id);
+      todoStore.removeTodo(props.id);
     }
   };
 
@@ -29,7 +28,7 @@ export const TodoItem = blox<TodoItemProps>(({ todo }) => {
     if (e.key === "Enter") {
       handleSubmit();
     } else if (e.key === "Escape") {
-      editText.set(todo.text());
+      editText.set(props.text);
       editing.set(false);
     }
   };
@@ -38,38 +37,58 @@ export const TodoItem = blox<TodoItemProps>(({ todo }) => {
     handleSubmit();
   };
 
-  return rx(() => {
-    const completed = todo.completed();
-    const text = todo.text();
-    const isEditing = editing();
-    const currentEditText = editText();
-    const className = [completed && "completed", isEditing && "editing"]
-      .filter(Boolean)
-      .join(" ");
+  const handleToggle = () => {
+    todoStore.toggleTodo(props.id);
+  };
 
-    return (
-      <li className={className}>
-        <div className="view">
-          <input
-            className="toggle"
-            type="checkbox"
-            checked={completed}
-            onChange={() => toggleTodo(todo.id)}
-          />
-          <label onDoubleClick={handleDoubleClick}>{text}</label>
-          <button className="destroy" onClick={() => removeTodo(todo.id)} />
-        </div>
-        {isEditing && (
-          <input
-            className="edit"
-            value={currentEditText}
-            onChange={(e) => editText.set(e.target.value)}
-            onKeyDown={handleKeyDown}
-            onBlur={handleBlur}
-            autoFocus
-          />
-        )}
-      </li>
-    );
+  const handleRemove = () => {
+    todoStore.removeTodo(props.id);
+  };
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    editText.set(e.target.value);
+  };
+
+  const editPart = rx(
+    () =>
+      editing() && (
+        <input
+          className="edit"
+          value={editText()}
+          onChange={handleChange}
+          onKeyDown={handleKeyDown}
+          onBlur={handleBlur}
+          autoFocus
+        />
+      )
+  );
+
+  const textPart = rx(() => {
+    console.log("rendering textPart", Math.random());
+    return <label onDoubleClick={handleDoubleClick}>{props.text}</label>;
   });
+
+  const removePart = <button className="destroy" onClick={handleRemove} />;
+
+  const inputPart = rx(() => (
+    <input
+      className="toggle"
+      type="checkbox"
+      checked={props.completed}
+      onChange={handleToggle}
+    />
+  ));
+
+  return rx(() => (
+    <li
+      className={`${props.completed && "completed"} ${editing() && "editing"}`}
+    >
+      <div className="view">
+        {inputPart}
+        {textPart}
+        {removePart}
+      </div>
+      {editPart}
+    </li>
+  ));
 });

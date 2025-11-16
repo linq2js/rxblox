@@ -249,6 +249,40 @@ export function signal<T>(
     }
   };
 
+  /**
+   * Sets the signal to a new value or updates it using a function.
+   * Uses immer's produce for immutable updates when a function is provided.
+   * Only notifies listeners if the value actually changed (according to equals).
+   *
+   * @param value - The new value or a function that receives the previous value
+   */
+  const set = (
+    value: T | ((prev: T) => T | void),
+    shouldPersist = true,
+    shouldMarkDirty = true
+  ): void => {
+    const prevValue = get();
+    // If value is a function, use produce to create an immutable update
+    const nextValue =
+      typeof value === "function"
+        ? (produce(prevValue, value as (draft: T) => T | void) as T)
+        : (value as T);
+
+    // Only update and notify if the value actually changed
+    if (!equals(prevValue, nextValue)) {
+      current = { value: nextValue };
+      if (shouldMarkDirty) {
+        isDirty = true; // Mark as dirty
+      }
+      // Notify all listeners (use slice() to avoid issues if listeners modify the array)
+      onChange.emit(nextValue);
+      // Persist the new value
+      if (shouldPersist) {
+        persistValue(nextValue);
+      }
+    }
+  };
+
   const onChange = emitter<T>();
 
   // Create the signal object by assigning methods to the get function
@@ -267,22 +301,7 @@ export function signal<T>(
      * @param value - The new value or a function that receives the previous value
      */
     set(value: T | ((prev: T) => T | void)): void {
-      const prevValue = get();
-      // If value is a function, use produce to create an immutable update
-      const nextValue =
-        typeof value === "function"
-          ? (produce(prevValue, value as (draft: T) => T | void) as T)
-          : (value as T);
-
-      // Only update and notify if the value actually changed
-      if (!equals(prevValue, nextValue)) {
-        current = { value: nextValue };
-        isDirty = true; // Mark as dirty
-        // Notify all listeners (use slice() to avoid issues if listeners modify the array)
-        onChange.emit(nextValue);
-        // Persist the new value
-        persistValue(nextValue);
-      }
+      set(value, true);
     },
     /**
      * Reads the signal value without tracking it as a dependency.
@@ -323,7 +342,7 @@ export function signal<T>(
   });
 
   // Initialize persistence (hydration)
-  if (persist) {
+  if (persist && (persist.get || persist.set)) {
     /**
      * Emitter for persistInfo changes.
      *
@@ -381,6 +400,8 @@ export function signal<T>(
      * All status changes trigger reactive updates via setPersistInfo().
      */
     persistValue = (val: T) => {
+      if (!persist.set) return;
+
       try {
         const result = persist.set(val);
         if (isPromiseLike(result)) {
@@ -413,15 +434,7 @@ export function signal<T>(
       // Only apply hydrated value if not dirty
       if (result && !isDirty) {
         const hydratedValue = result.value;
-
-        // Ensure current is computed
-        const currentValue = current ? current.value : compute();
-
-        // Only update if value actually changed
-        if (!equals(currentValue, hydratedValue)) {
-          current = { value: hydratedValue };
-          onChange.emit(hydratedValue);
-        }
+        set(hydratedValue, false, false);
       }
 
       // Preserve promise when setting synced status
@@ -437,6 +450,8 @@ export function signal<T>(
      * Only the latest hydration's result will update the status.
      */
     const hydrate = () => {
+      if (!persist.get) return;
+
       try {
         const result = persist.get();
 

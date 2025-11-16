@@ -9,12 +9,14 @@ import { action as createAction } from "./action";
 import { cancellableAction, aborter } from "./cancellableAction";
 import { snapshot } from "./snapshot";
 import { history } from "./history";
+import { createRef } from "./ref";
 
 export const blox = Object.assign(createBlox, {
   handle,
   onMount,
   onUnmount,
   onRender,
+  ref: createRef,
 });
 
 export const signal = Object.assign(createSignal, {
@@ -46,3 +48,4 @@ export * from "./loadable";
 export { wait, type Awaitable } from "./wait";
 export { diff } from "./diff";
 export type { Persistor, PersistStatus, PersistInfo } from "./types";
+export { type Emitter, emitter } from "./emitter";

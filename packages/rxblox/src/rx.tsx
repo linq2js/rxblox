@@ -7,8 +7,8 @@ import {
   memo,
   useLayoutEffect,
   useMemo,
-  useState,
   ReactElement,
+  useRef,
 } from "react";
 import { trackingDispatcher, trackingToken } from "./trackingDispatcher";
 import { emitter } from "./emitter";
@@ -16,7 +16,6 @@ import { useRerender } from "./useRerender";
 import { withDispatchers } from "./dispatcher";
 import { Signal } from "./types";
 import { isSignal } from "./signal";
-import { isDiff } from "./isDiff";
 
 /**
  * Reactive component that automatically re-renders when its signal dependencies change.
@@ -30,15 +29,12 @@ import { isDiff } from "./isDiff";
  *
  * The component is memoized to prevent unnecessary re-renders when props don't change.
  */
-export const Reactive = memo(function Reactive(props: { exp: () => unknown }) {
-  // Track when signal dependencies change to re-run effect
-  const [recomputeToken, setRecomputeToken] = useState({});
-
+export const Reactive = memo((props: { exp: () => unknown }) => {
   // State used to trigger re-renders and track errors
   const rerender = useRerender<{
     error?: unknown;
   }>();
-
+  const resultEvaluated = useRef(false);
   // Signal dispatcher is stable across renders - created once and reused
   // We use useMemo instead of useState to pass required parameters
   const dispatcher = useMemo(() => {
@@ -65,7 +61,9 @@ export const Reactive = memo(function Reactive(props: { exp: () => unknown }) {
   useLayoutEffect(() => {
     const onCleanup = emitter();
     const recompute = () => {
-      rerender({});
+      if (!rerender.rendering() || resultEvaluated.current) {
+        rerender({});
+      }
     };
     try {
       // Subscribe to all dependencies that were accessed during expression evaluation
@@ -75,7 +73,7 @@ export const Reactive = memo(function Reactive(props: { exp: () => unknown }) {
     } catch (ex) {
       // If subscription fails, clean up and set error state
       // Errors should be handled immediately, not debounced
-      onCleanup.emit(undefined);
+      onCleanup.emitAndClear(undefined);
       rerender.immediate({ error: ex });
       return;
     }
@@ -84,9 +82,11 @@ export const Reactive = memo(function Reactive(props: { exp: () => unknown }) {
     return () => {
       // Cancel any pending debounced rerender to prevent updates after unmount
       rerender.cancel();
-      onCleanup.emit(undefined);
+      onCleanup.emitAndClear(undefined);
     };
-  }, [dispatcher, recomputeToken, rerender]);
+  });
+
+  resultEvaluated.current = false;
 
   /**
    * Computes the expression result and tracks signal dependencies.
@@ -101,21 +101,11 @@ export const Reactive = memo(function Reactive(props: { exp: () => unknown }) {
    * to avoid unnecessary recomputations.
    */
   const result = useMemo(() => {
-    const prevSubscribables = new Set(dispatcher.subscribables);
     dispatcher.clear();
-
-    try {
-      return withDispatchers([trackingToken(dispatcher)], props.exp);
-    } finally {
-      const nextSubscribables = new Set(dispatcher.subscribables);
-
-      // Update subscriptions if dependencies changed
-      // Changing the recomputeToken triggers useLayoutEffect to re-run
-      if (isDiff(prevSubscribables, nextSubscribables)) {
-        setRecomputeToken({});
-      }
-    }
+    return withDispatchers([trackingToken(dispatcher)], props.exp);
   }, [dispatcher, props.exp, rerender.data]);
+
+  resultEvaluated.current = true;
 
   // Return the computed result, or null if result is null/undefined
   // Functions are not valid React children, so convert them to null
@@ -126,6 +116,7 @@ export const Reactive = memo(function Reactive(props: { exp: () => unknown }) {
   // Cast to ReactNode to satisfy TypeScript
   return (result ?? null) as unknown as ReactNode;
 });
+Reactive.displayName = "rx";
 
 /**
  * Creates a reactive component with auto-reactive props.

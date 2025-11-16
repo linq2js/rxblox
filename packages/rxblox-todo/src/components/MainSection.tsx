@@ -1,35 +1,40 @@
-import { rx } from "rxblox";
-import { filteredTodos, todos, toggleAll } from "../store/todos";
+import { blox, rx } from "rxblox";
+import { todoStore } from "../store/todoStore";
 import { TodoItem } from "./TodoItem";
 
-export function MainSection() {
-  return rx(() => {
-    const todoList = filteredTodos();
-    const allTodos = todos();
-
-    if (allTodos.length === 0) {
-      return null;
-    }
-
-    const allCompleted = allTodos.every((todo) => todo.completed());
-
-    return (
+export const MainSection = blox(function MainSection() {
+  return (
+    <>
       <section className="main">
-        <input
-          id="toggle-all"
-          className="toggle-all"
-          type="checkbox"
-          checked={allCompleted}
-          onChange={toggleAll}
-        />
+        {rx(() => {
+          return (
+            <input
+              id="toggle-all"
+              className="toggle-all"
+              type="checkbox"
+              checked={todoStore.allCompleted()}
+              onChange={todoStore.toggleAll}
+            />
+          );
+        })}
         <label htmlFor="toggle-all">Mark all as complete</label>
         <ul className="todo-list">
-          {todoList.map((todo) => (
-            <TodoItem key={todo.id} todo={todo} />
-          ))}
+          {/* use peek to avoid tracking dependencies */}
+          {rx(() => {
+            const filter = todoStore.filter();
+            const filteredTodos =
+              filter === "all"
+                ? todoStore.todos()
+                : filter === "active"
+                ? todoStore.activeTodos()
+                : todoStore.completedTodos();
+
+            return filteredTodos.map((todo) => (
+              <TodoItem key={todo.id} {...todo} />
+            ));
+          })}
         </ul>
       </section>
-    );
-  });
-}
-
+    </>
+  );
+});

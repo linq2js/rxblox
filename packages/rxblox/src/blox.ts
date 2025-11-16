@@ -1,11 +1,11 @@
 import {
+  createElement,
   FC,
   ForwardedRef,
   forwardRef,
   memo,
   PropsWithoutRef,
   ReactNode,
-  RefObject,
   useImperativeHandle,
   useLayoutEffect,
   useMemo,
@@ -15,16 +15,17 @@ import {
 import { Ref, MutableSignal } from "./types";
 import { effectToken, localEffectDispatcher } from "./effectDispatcher";
 import { signal } from "./signal";
-import isEqual from "lodash/isEqual";
 import { providerToken, useProviderResolver } from "./provider";
 import { useRerender } from "./useRerender";
-import { Emitter, emitter } from "./emitter";
+import { emitter } from "./emitter";
 import { useUnmount } from "./useUnmount";
 import { getDispatcher, withDispatchers } from "./dispatcher";
 import { EventDispatcher, eventToken } from "./eventDispatcher";
 import once from "lodash/once";
 import { trackingToken } from "./trackingDispatcher";
 import { disposableToken } from "./disposableDispatcher";
+import shallowEqual from "shallowequal";
+
 /**
  * Creates a reactive component that tracks props as signals and manages effects.
  *
@@ -76,14 +77,14 @@ import { disposableToken } from "./disposableDispatcher";
  * ```
  */
 export function blox<TProps extends object>(
-  builder: (props: TProps) => ReactNode
+  builder: (props: PropsWithoutRef<TProps>) => ReactNode
 ): FC<PropsWithoutRef<TProps>>;
 export function blox<TProps extends object, TRef>(
-  builder: (props: TProps, ref: Ref<TRef>) => ReactNode
+  builder: (props: PropsWithoutRef<TProps>, ref: Ref<TRef>) => ReactNode
 ): FC<PropsWithoutRef<TProps> & { ref?: ForwardedRef<TRef | undefined> }>;
-export function blox<TProps extends object & { ref?: RefObject<TRef> }, TRef>(
-  builder: (props: TProps, ref: Ref<TRef>) => ReactNode
-) {
+export function blox<TProps extends object, TRef>(
+  builder: (props: PropsWithoutRef<TProps>, ref: Ref<TRef>) => ReactNode
+): FC<PropsWithoutRef<TProps> & { ref?: ForwardedRef<TRef | undefined> }> {
   /**
    * Internal component that manages reactive props and effects.
    *
@@ -95,9 +96,13 @@ export function blox<TProps extends object & { ref?: RefObject<TRef> }, TRef>(
    * - Re-runs effects when tracked props change
    */
   const Block = (
-    props: PropsWithoutRef<TProps>,
-    forwardedRef: ForwardedRef<TRef>
+    props: PropsWithoutRef<TProps> & {
+      forwardedRef: ForwardedRef<TRef>;
+    }
   ) => {
+    // Destructure to separate forwardedRef from user props
+    const { forwardedRef, ...userProps } = props;
+
     const providerResolver = useProviderResolver();
     const [eventDispatcher] = useState(() => {
       const emitters: EventDispatcher = {
@@ -163,31 +168,42 @@ export function blox<TProps extends object & { ref?: RefObject<TRef> }, TRef>(
      *
      * Created once per component instance and reused across renders.
      */
-    const getSignal = useMemo(
-      () =>
-        signalRegistry<keyof PropsWithoutRef<TProps>>(
-          eventDispatcher.emitters.unmount
-        ),
-      []
-    );
+    const signalRegistry = useMemo(() => {
+      const signals = new Map<
+        keyof PropsWithoutRef<TProps>,
+        MutableSignal<unknown>
+      >();
+
+      return {
+        tryGet: (key: keyof PropsWithoutRef<TProps>) => {
+          return signals.get(key);
+        },
+        get: (key: keyof PropsWithoutRef<TProps>, initialValue: unknown) => {
+          if (!signals.has(key)) {
+            signals.set(key, signal(initialValue));
+          }
+          return signals.get(key)!;
+        },
+      };
+    }, []);
 
     /**
-     * Update prop signals when props change.
-     *
-     * This runs during render (before effects) and:
-     * 1. Compares current props with previous props using deep equality
-     * 2. If props changed, updates propsRef and sets each prop signal
-     * 3. Each prop gets its own signal, allowing fine-grained tracking
-     *
-     * This ensures that when a prop is accessed through the proxy,
-     * its corresponding signal is already updated and can be tracked.
+     * Update propsRef immediately during render.
+     * Signal updates happen in useLayoutEffect to avoid "Cannot update during render" warnings.
      */
-    if (!isEqual(propsRef.current, props)) {
-      propsRef.current = props;
-      Object.entries(props).forEach(([key, value]) => {
-        getSignal(key as keyof PropsWithoutRef<TProps>, value).set(value);
+    propsRef.current = userProps as PropsWithoutRef<TProps>;
+
+    useLayoutEffect(() => {
+      Object.entries(userProps).forEach(([key, value]) => {
+        const signal = signalRegistry.tryGet(
+          key as keyof PropsWithoutRef<TProps>
+        );
+
+        if (signal && signal.peek() !== value) {
+          signal.set(value);
+        }
       });
-    }
+    });
 
     /**
      * Effect dispatcher that collects effects created during builder.
@@ -226,7 +242,7 @@ export function blox<TProps extends object & { ref?: RefObject<TRef> }, TRef>(
            */
           get(_target, prop) {
             // Get or create a signal for this prop key
-            const propSignal = getSignal(
+            const propSignal = signalRegistry.get(
               prop as keyof PropsWithoutRef<TProps>,
               propsRef.current?.[prop as keyof PropsWithoutRef<TProps>]
             );
@@ -290,7 +306,7 @@ export function blox<TProps extends object & { ref?: RefObject<TRef> }, TRef>(
           disposableToken(eventDispatcher.emitters.unmount),
         ],
         () => {
-          return builder(propsProxy as TProps, ref.set);
+          return builder(propsProxy as PropsWithoutRef<TProps>, ref.set);
         }
       );
     });
@@ -327,52 +343,70 @@ export function blox<TProps extends object & { ref?: RefObject<TRef> }, TRef>(
      * Exposes the ref.current value via the forwarded ref.
      * Updates whenever ref.current changes.
      */
-    useImperativeHandle(forwardedRef, ref.get, [ref.get()]);
+    useImperativeHandle(props.forwardedRef, ref.get, [ref.get()]);
 
     eventDispatcher.emitRender();
 
     return result as unknown as ReactNode;
   };
 
-  return memo(forwardRef(Block));
-}
+  /**
+   * HMR (Hot Module Replacement) detection wrapper.
+   *
+   * This component detects when the builder function changes during development
+   * (e.g., when you save the file with code changes) and forces React to remount
+   * the Block component by changing its key.
+   *
+   * How it works:
+   * 1. Store the builder function reference in a ref
+   * 2. On each render, compare current builder with stored reference
+   * 3. If different (HMR occurred), increment version counter
+   * 4. Pass version as key to Block component
+   * 5. React sees new key → unmounts old Block → mounts new Block
+   * 6. New Block runs the updated builder function with new code
+   *
+   * Why this matters:
+   * - Without this, code changes wouldn't be reflected until manual refresh
+   * - Signal values are preserved (stored in signal registry outside component)
+   * - Effects are re-collected with updated code
+   * - Provides instant feedback during development
+   *
+   * Example:
+   * ```tsx
+   * const Counter = blox(() => {
+   *   const count = signal(5);
+   *   // You edit this line to add new feature:
+   *   const doubled = signal(() => count() * 2);
+   *   return <div>{count()} × 2 = {doubled()}</div>;
+   * });
+   *
+   * // Save file → HMR detects change → Block remounts with new code
+   * // count is still 5 (preserved), but doubled signal now exists
+   * ```
+   */
+  const HMR = (
+    props: PropsWithoutRef<TProps>,
+    forwardedRef: ForwardedRef<TRef>
+  ) => {
+    // Track how many times builder has changed (HMR counter)
+    const version = useRef(0);
 
-/**
- * Creates a registry function that manages signals for a set of keys.
- *
- * The registry:
- * - Creates signals lazily when first accessed
- * - Caches signals in a Map for reuse
- * - Returns the same signal instance for the same key
- *
- * This is used by `blox` to create one signal per prop key,
- * allowing fine-grained tracking of individual prop changes.
- *
- * @returns A function that takes a key and initial value, and returns
- *          a signal for that key (creating it if it doesn't exist)
- *
- * @example
- * ```ts
- * const registry = signalRegistry<string>();
- * const nameSignal = registry('name', 'Alice'); // Creates signal
- * const ageSignal = registry('age', 25); // Creates signal
- * const nameSignal2 = registry('name', 'Bob'); // Returns same signal as nameSignal
- * ```
- */
-export function signalRegistry<TKey>(onDispose?: Emitter) {
-  const signals = new Map<TKey, MutableSignal<unknown>>();
+    // Store previous builder reference to detect changes
+    const builderRef = useRef(builder);
 
-  return (key: TKey, initialValue: unknown) => {
-    if (!signals.has(key)) {
-      signals.set(
-        key,
-        onDispose
-          ? withDispatchers([disposableToken(onDispose)], () =>
-              signal(initialValue)
-            )
-          : signal(initialValue)
-      );
+    // Check if builder function changed (indicates HMR occurred)
+    if (builderRef.current !== builder) {
+      builderRef.current = builder;
+      version.current++; // Increment to force remount via key change
     }
-    return signals.get(key)!;
+
+    // Render Block with version as key - changing key forces React to remount
+    return createElement(Block, {
+      ...props,
+      forwardedRef,
+      key: version.current,
+    });
   };
+
+  return memo(forwardRef(HMR)) as any;
 }

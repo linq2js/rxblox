@@ -1,63 +1,63 @@
-import { rx } from "rxblox";
-import {
-  activeCount,
-  completedCount,
-  clearCompleted,
-  filter,
-  TodoFilter,
-} from "../store/todos";
+import { blox, rx } from "rxblox";
+import { todoStore } from "../store/todoStore";
 
-export function Footer() {
-  const setFilter = (newFilter: TodoFilter) => {
-    filter.set(newFilter);
-  };
-
-  return rx(() => {
-    const active = activeCount();
-    const completed = completedCount();
-    const currentFilter = filter();
-
-    return (
-      <footer className="footer">
-        <span className="todo-count">
-          <strong>{active}</strong> {active === 1 ? "item" : "items"} left
-        </span>
-        <ul className="filters">
-          <li>
+export const Footer = blox(() => {
+  return (
+    <footer className="footer">
+      <span className="todo-count">
+        {rx(() => (
+          <>
+            <strong>{todoStore.activeTodos().length}</strong>{" "}
+            {todoStore.activeTodos().length === 1 ? "item" : "items"} left
+          </>
+        ))}
+      </span>
+      <ul className="filters">
+        <li>
+          {rx(() => (
             <a
-              className={currentFilter === "all" ? "selected" : ""}
-              onClick={() => setFilter("all")}
+              className={todoStore.filter() === "all" ? "selected" : ""}
+              onClick={todoStore.setFilterAll}
               style={{ cursor: "pointer" }}
             >
               All
             </a>
-          </li>
-          <li>
+          ))}
+        </li>
+        <li>
+          {rx(() => (
             <a
-              className={currentFilter === "active" ? "selected" : ""}
-              onClick={() => setFilter("active")}
+              className={todoStore.filter() === "active" ? "selected" : ""}
+              onClick={todoStore.setFilterActive}
               style={{ cursor: "pointer" }}
             >
               Active
             </a>
-          </li>
-          <li>
+          ))}
+        </li>
+        <li>
+          {rx(() => (
             <a
-              className={currentFilter === "completed" ? "selected" : ""}
-              onClick={() => setFilter("completed")}
+              className={todoStore.filter() === "completed" ? "selected" : ""}
+              onClick={todoStore.setFilterCompleted}
               style={{ cursor: "pointer" }}
             >
               Completed
             </a>
-          </li>
-        </ul>
-        {completed > 0 && (
-          <button className="clear-completed" onClick={clearCompleted}>
-            Clear completed
-          </button>
-        )}
-      </footer>
-    );
-  });
-}
-
+          ))}
+        </li>
+      </ul>
+      {rx(
+        () =>
+          todoStore.completedTodos().length > 0 && (
+            <button
+              className="clear-completed"
+              onClick={todoStore.clearCompleted}
+            >
+              Clear completed
+            </button>
+          )
+      )}
+    </footer>
+  );
+});
