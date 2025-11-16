@@ -429,7 +429,7 @@ const MyForm = blox(() => {
 - **[Core Concepts](https://github.com/linq2js/rxblox/blob/main/packages/rxblox/docs/core-concepts.md)** - Master the fundamentals in 10 minutes
 - **[API Reference](https://github.com/linq2js/rxblox/blob/main/packages/rxblox/docs/api-reference.md)** - Every function, every option
 - **[Patterns & Best Practices](https://github.com/linq2js/rxblox/blob/main/packages/rxblox/docs/patterns.md)** - Real-world patterns that work
-- **[Comparisons](https://github.com/linq2js/rxblox/blob/main/packages/rxblox/docs/comparisons.md)** - See how we stack up
+- **[vs. Other Libraries](https://github.com/linq2js/rxblox/blob/main/packages/rxblox/docs/comparisons.md)** - Compare with SolidJS, Preact, Jotai, Zustand, MobX
 
 ### Deep Dives
 
@@ -448,6 +448,9 @@ A: If you've used signals in Solid.js or Preact, you already know it. If not, it
 **Q: Can I use it with existing React code?**  
 A: Yes! Drop it in anywhere. Use `signal()` for state, `rx()` for reactive UI. Mix with regular React components.
 
+**Q: How does it compare to X library?**  
+A: See our **[detailed comparison guide](https://github.com/linq2js/rxblox/blob/main/packages/rxblox/docs/comparisons.md)** for side-by-side comparisons with SolidJS, Preact Signals, Jotai, Zustand, and MobX.
+
 **Q: What about TypeScript?**  
 A: First-class support. Full type inference. No manual types needed.
 
@@ -455,7 +458,7 @@ A: First-class support. Full type inference. No manual types needed.
 A: Yes. Used in production apps. Well-tested. MIT licensed.
 
 **Q: What's the bundle size?**  
-A: Lightweight. Smaller than most state management libraries.
+A: ~16KB minified + gzipped. Includes signals, computed, effects, persistence, history, tagging, actions, and loadable pattern. ([Compare sizes](https://github.com/linq2js/rxblox/blob/main/packages/rxblox/docs/comparisons.md#bundle-size-comparison))
 
 **Q: Do I need to rewrite my app?**  
 A: No. Start with one component. Gradually adopt where it helps.
