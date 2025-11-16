@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { batch } from "./batchDispatcher";
+import { batch } from "./batch";
 import { signal } from "./signal";
 
 describe("batch", () => {
@@ -363,5 +363,39 @@ describe("batch", () => {
 
     // Computed should not have recomputed
     expect(computeFn).toHaveBeenCalledTimes(1);
+  });
+
+  it("should batch updates with signal array overload", () => {
+    const a = signal({ count: 0 });
+    const b = signal({ name: "Alice" });
+    const c = signal({ age: 30 });
+
+    batch([a, b, c], (draftA, draftB, draftC) => {
+      draftA.count = 10;
+      draftB.name = "Bob";
+      draftC.age = 25;
+    });
+
+    expect(a()).toEqual({ count: 10 });
+    expect(b()).toEqual({ name: "Bob" });
+    expect(c()).toEqual({ age: 25 });
+  });
+
+  it("should infer correct types for signal array overload", () => {
+    const num = signal(42);
+    const str = signal("hello");
+    const bool = signal(true);
+
+    batch([num, str, bool], (n, s, b) => {
+      // Type checks
+      n satisfies number;
+      s satisfies string;
+      b satisfies boolean;
+
+      // Use the values (this would fail if types were wrong)
+      const _sum: number = n + 1;
+      const _upper: string = s.toUpperCase();
+      const _not: boolean = !b;
+    });
   });
 });

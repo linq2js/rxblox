@@ -138,13 +138,9 @@ export function createTodoStore() {
      * @param id - The ID of the todo to remove
      */
     removeTodo(id: string) {
-      batch(() => {
-        keys.set((draft) => {
-          remove(draft, (x) => x === id);
-        });
-        values.set((draft) => {
-          delete draft[id];
-        });
+      batch([keys, values], (k, v) => {
+        remove(k, (x) => x === id);
+        delete v[id];
       });
     },
 
