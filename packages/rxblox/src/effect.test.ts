@@ -661,17 +661,17 @@ describe("effectDispatcher", () => {
 
     it("should abort fetch requests when effect is cleaned up", async () => {
       let fetchAborted = false;
-      global.fetch = vi.fn().mockImplementation(
-        (url: string, options?: RequestInit) => {
-          return new Promise((resolve, reject) => {
+      global.fetch = vi
+        .fn()
+        .mockImplementation((_url: string, options?: RequestInit) => {
+          return new Promise((_resolve, reject) => {
             options?.signal?.addEventListener("abort", () => {
               fetchAborted = true;
               reject(new DOMException("Aborted", "AbortError"));
             });
             // Never resolve to simulate long request
           });
-        }
-      );
+        });
 
       const userId = signal(1);
 
@@ -696,16 +696,16 @@ describe("effectDispatcher", () => {
     it("should handle multiple async operations with same abortSignal", async () => {
       const abortedOperations: string[] = [];
 
-      global.fetch = vi.fn().mockImplementation(
-        (url: string, options?: RequestInit) => {
-          return new Promise((resolve, reject) => {
+      global.fetch = vi
+        .fn()
+        .mockImplementation((url: string, options?: RequestInit) => {
+          return new Promise((_resolve, reject) => {
             options?.signal?.addEventListener("abort", () => {
               abortedOperations.push(url as string);
               reject(new DOMException("Aborted", "AbortError"));
             });
           });
-        }
-      );
+        });
 
       const trigger = signal(0);
 

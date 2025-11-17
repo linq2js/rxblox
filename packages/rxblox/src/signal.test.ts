@@ -605,7 +605,7 @@ describe("signal", () => {
       let fetchAborted = false;
 
       global.fetch = vi.fn().mockImplementation(
-        (url: string, options?: RequestInit) => {
+        (_url: string, options?: RequestInit) => {
           return new Promise((resolve, reject) => {
             options?.signal?.addEventListener("abort", () => {
               fetchAborted = true;
@@ -661,8 +661,8 @@ describe("signal", () => {
 
     it("should not create abortController if abortSignal is never accessed", () => {
       // This test verifies lazy creation of AbortController
-      const computed = signal(({ track }) => {
-        // Don't access abortSignal
+      const computed = signal(() => {
+        // Don't access abortSignal or track
         return 42;
       });
 
