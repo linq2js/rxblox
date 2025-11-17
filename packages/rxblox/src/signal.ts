@@ -17,6 +17,37 @@ import { isPromiseLike } from "./isPromiseLike";
 import { batchToken } from "./batchDispatcher";
 
 /**
+ * Global queue for coordinating post-batch recomputations.
+ * This ensures that cascading updates (e.g., computed signals that depend on other computed signals)
+ * only trigger once even when multiple dependencies change.
+ */
+let postBatchQueue: Set<() => void> | null = null;
+let postBatchScheduled = false;
+
+function schedulePostBatchFlush() {
+  if (!postBatchScheduled) {
+    postBatchScheduled = true;
+    Promise.resolve().then(() => {
+      postBatchScheduled = false;
+
+      // Process all pending recomputations in waves
+      // Each wave may trigger new recomputations (cascading updates)
+      // Continue until no more recomputations are pending
+      while (postBatchQueue && postBatchQueue.size > 0) {
+        const queue = postBatchQueue;
+        postBatchQueue = new Set();
+
+        // Execute all recomputations in this wave
+        queue.forEach((fn) => fn());
+      }
+
+      // Clear the queue
+      postBatchQueue = null;
+    });
+  }
+}
+
+/**
  * Context provided to computed signal functions.
  *
  * This context enables explicit dependency tracking via the `track()` function,
@@ -264,22 +295,43 @@ export function signal<T>(
     return current.value;
   };
 
-  const recompute = () => {
-    if (getDispatcher(batchToken)) {
-      current = undefined;
-      isDirty = true;
-      Promise.resolve().then(() => {
-        if (current) return;
-        recompute();
-      });
-      return;
-    }
+  // Track whether we have a pending recomputation scheduled
+  let pendingRecompute = false;
+
+  const performRecompute = () => {
+    pendingRecompute = false;
     const prev = current;
     const nextValue = compute();
     if (!prev || !equals(prev.value, nextValue)) {
       current = { value: nextValue };
       onChange.emit(nextValue);
     }
+  };
+
+  const recompute = () => {
+    // If we're inside a batch OR there's an active post-batch flush in progress,
+    // defer the recomputation to ensure cascading updates are also batched
+    const dispatcher = getDispatcher(batchToken);
+    if (dispatcher || postBatchQueue) {
+      // Only queue one recomputation per signal
+      if (!pendingRecompute) {
+        pendingRecompute = true;
+
+        // Initialize the global queue if needed
+        if (!postBatchQueue) {
+          postBatchQueue = new Set();
+          schedulePostBatchFlush();
+        }
+
+        // Add this signal's recomputation to the global queue
+        // The queue will be flushed in waves until all cascading updates complete
+        postBatchQueue.add(performRecompute);
+      }
+      return;
+    }
+
+    // Not in a batch and no flush in progress - perform the recomputation immediately
+    performRecompute();
   };
 
   /**
