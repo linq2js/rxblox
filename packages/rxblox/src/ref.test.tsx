@@ -127,6 +127,8 @@ describe("blox.ref", () => {
           capturedValue = inputRef.ready((input) => input.value);
         });
 
+        void capturedValue;
+
         return <input ref={inputRef} defaultValue="test-value" />;
       });
 
@@ -360,7 +362,7 @@ describe("blox.ref", () => {
         let result: { value: string } | undefined;
 
         blox.onMount(() => {
-          result = blox.ready([inputRef, divRef], (input, div) => ({
+          result = blox.ready([inputRef, divRef], (_input, _div) => ({
             value: "test",
           }));
 
