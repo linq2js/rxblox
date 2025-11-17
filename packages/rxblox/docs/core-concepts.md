@@ -78,10 +78,10 @@ const b = signal(20);
 
 // Only tracks the signals you actually access
 const result = signal(({ track }) => {
-  const { condition: cond, a: valA, b: valB } = track({ condition, a, b });
+  const tracked = track({ condition, a, b });
 
-  // Only tracks 'condition' + one of 'a' or 'b'
-  return cond ? valA : valB;
+  // Only tracks 'condition' + one of 'a' or 'b' (whichever is accessed)
+  return tracked.condition ? tracked.a : tracked.b;
 });
 
 console.log(result()); // 10

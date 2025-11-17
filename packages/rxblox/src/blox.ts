@@ -180,7 +180,15 @@ export function blox<TProps extends object, TRef>(
         },
         get: (key: keyof PropsWithoutRef<TProps>, initialValue: unknown) => {
           if (!signals.has(key)) {
-            signals.set(key, signal(initialValue));
+            // Temporarily clear context to allow signal creation
+            // Prop signals are created once per component instance, not on every render
+            // Clear context type to prevent rx() validation errors
+            signals.set(
+              key,
+              trackingToken.without(() => signal(initialValue), {
+                contextType: undefined,
+              })
+            );
           }
           return signals.get(key)!;
         },

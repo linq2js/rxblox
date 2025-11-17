@@ -1,4 +1,4 @@
-import { getDispatcher } from "./dispatcher";
+import { getDispatcher, getContextType } from "./dispatcher";
 import { disposableToken } from "./disposableDispatcher";
 import { addEffect } from "./effectDispatcher";
 import { emitter } from "./emitter";
@@ -7,6 +7,7 @@ import { Effect, TrackFunction } from "./types";
 
 export type EffectContext = {
   track: TrackFunction;
+  readonly abortSignal: AbortSignal;
 };
 
 /**
@@ -54,9 +55,36 @@ export type EffectContext = {
 export function effect(
   fn: (context: EffectContext) => void | Promise<void> | VoidFunction
 ): Effect {
+  // Prevent effect creation inside rx() blocks - this would create subscription leaks
+  if (getContextType() === "rx") {
+    throw new Error(
+      "Cannot create effects inside rx() blocks. " +
+        "Effects created in rx() would be recreated on every re-render, causing subscription leaks.\n\n" +
+        "❌ Don't do this:\n" +
+        "  rx(() => {\n" +
+        "    effect(() => console.log('leak'));  // Created on every re-render!\n" +
+        "    return <div>Content</div>;\n" +
+        "  })\n\n" +
+        "✅ Instead, create effects in stable scope:\n" +
+        "  const MyComponent = blox(() => {\n" +
+        "    effect(() => console.log('once'));  // Created once\n" +
+        "    return <div>{rx(() => <span>Content</span>)}</div>;\n" +
+        "  });\n\n" +
+        "See: https://github.com/linq2js/rxblox#best-practices"
+    );
+  }
+
   // Emitter for managing cleanup functions (effect cleanup and signal unsubscribe functions)
   // Uses void type since cleanup functions don't take parameters
   const onCleanup = emitter<void>();
+  let abortController: AbortController | undefined;
+
+  const getAbortSignal = () => {
+    if (!abortController) {
+      abortController = new AbortController();
+    }
+    return abortController.signal;
+  };
 
   /**
    * Executes the effect function:
@@ -67,17 +95,18 @@ export function effect(
    * 5. Registers any returned cleanup function with the emitter
    * 6. Subscribes to all signals accessed during execution and registers their unsubscribe functions
    */
-  const run = () => {
-    // Execute all cleanup functions (effect cleanup and signal unsubscribes from previous run)
-    // Pass undefined since cleanup functions don't take parameters
-    onCleanup.emit(undefined);
-    // Clear all registered cleanup functions to prepare for new subscriptions
-    onCleanup.clear();
+  const reRun = () => {
+    cleanup();
 
     // Track which signals are accessed during execution
-    const dispatcher = trackingDispatcher(run, onCleanup);
+    const dispatcher = trackingDispatcher(reRun, onCleanup);
     const result = trackingToken.with(dispatcher, () =>
-      fn({ track: dispatcher.track })
+      fn({
+        track: dispatcher.track,
+        get abortSignal() {
+          return getAbortSignal();
+        },
+      })
     );
     // Register the effect's cleanup function if one was returned
     if (typeof result === "function") {
@@ -88,7 +117,9 @@ export function effect(
   const cleanup = () => {
     // Execute all cleanup functions (effect cleanup and signal unsubscribes from previous run)
     // Pass undefined since cleanup functions don't take parameters
-    onCleanup.emitAndClear(undefined);
+    onCleanup.emitAndClear();
+    abortController?.abort();
+    abortController = undefined;
   };
 
   /**
@@ -106,9 +137,14 @@ export function effect(
       cleanup();
 
       // Track which signals are accessed during execution
-      const dispatcher = trackingDispatcher(run, onCleanup);
+      const dispatcher = trackingDispatcher(reRun, onCleanup);
       const result = trackingToken.with(dispatcher, () =>
-        fn({ track: dispatcher.track })
+        fn({
+          track: dispatcher.track,
+          get abortSignal() {
+            return getAbortSignal();
+          },
+        })
       );
       // Register the effect's cleanup function if one was returned
       if (typeof result === "function") {

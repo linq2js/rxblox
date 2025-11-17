@@ -36,7 +36,23 @@ describe("eventDispatcher", () => {
     it("should throw error when called outside blox component", () => {
       expect(() => {
         blox.onMount(() => {});
-      }).toThrow("Event dispatcher not found");
+      }).toThrow("must be called inside a blox component or blox.slot()");
+    });
+
+    it("should work inside blox.slot()", async () => {
+      const mountCallback = vi.fn();
+
+      const Component = blox(() => {
+        const [slot] = blox.slot(() => {
+          blox.onMount(mountCallback);
+          return "slot logic";
+        });
+        return <div>{slot}</div>;
+      });
+
+      render(<Component />);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(mountCallback).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -73,7 +89,29 @@ describe("eventDispatcher", () => {
     it("should throw error when called outside blox component", () => {
       expect(() => {
         blox.onRender(() => {});
-      }).toThrow("Event dispatcher not found");
+      }).toThrow("must be called inside a blox component or blox.slot()");
+    });
+
+    it("should work inside blox.slot()", () => {
+      const renderCallback = vi.fn();
+
+      const Component = blox<{ count: number }>((props) => {
+        // blox.slot() is called once during builder, but onRender is registered
+        // to the parent component's render cycle
+        const [slot] = blox.slot(() => {
+          blox.onRender(renderCallback);
+          return "slot logic";
+        });
+        return <div>{props.count} {slot}</div>;
+      });
+
+      const { rerender } = render(<Component count={0} />);
+      // Initial render calls onRender once
+      expect(renderCallback).toHaveBeenCalledTimes(1);
+
+      // Re-render the component to trigger onRender again
+      rerender(<Component count={1} />);
+      expect(renderCallback).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -98,7 +136,62 @@ describe("eventDispatcher", () => {
     it("should throw error when called outside blox component", () => {
       expect(() => {
         blox.onUnmount(() => {});
-      }).toThrow("Event dispatcher not found");
+      }).toThrow("must be called inside a blox component or blox.slot()");
+    });
+
+    it("should work inside blox.slot()", async () => {
+      const unmountCallback = vi.fn();
+
+      const Component = blox(() => {
+        const [slot] = blox.slot(() => {
+          blox.onUnmount(unmountCallback);
+          return "slot logic";
+        });
+        return <div>{slot}</div>;
+      });
+
+      const { unmount } = render(<Component />);
+      expect(unmountCallback).not.toHaveBeenCalled();
+
+      unmount();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(unmountCallback).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("context validation", () => {
+    it("should throw error when onMount called in effect context", async () => {
+      const { effect } = await import("./effect");
+      expect(() => {
+        effect(() => {
+          blox.onMount(() => {});
+        });
+      }).toThrow("must be called inside a blox component or blox.slot()");
+    });
+
+    it("should throw error when onRender called in signal context", async () => {
+      const { signal } = await import("./signal");
+      expect(() => {
+        const computed = signal(() => {
+          blox.onRender(() => {});
+          return 0;
+        });
+        // Access the computed signal to trigger the computation
+        computed();
+      }).toThrow("must be called inside a blox component or blox.slot()");
+    });
+
+    it("should throw error when onUnmount called in batch context", async () => {
+      const { signal } = await import("./signal");
+      const { batch } = await import("./batch");
+      const count = signal(0);
+      
+      expect(() => {
+        batch(() => {
+          blox.onUnmount(() => {});
+          count.set(1);
+        });
+      }).toThrow("must be called inside a blox component or blox.slot()");
     });
   });
 });

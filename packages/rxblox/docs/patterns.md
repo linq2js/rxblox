@@ -119,9 +119,9 @@ const UserList = blox(() => {
 ```tsx
 const UserPosts = blox<{ userId: number }>((props) => {
   const posts = signal.async(async ({ track }) => {
-    const { userId } = track({ userId: props.userId });
+    const tracked = track({ userId: props.userId });
 
-    const response = await fetch(`/api/users/${userId}/posts`);
+    const response = await fetch(`/api/users/${tracked.userId}/posts`);
     return response.json();
   });
 

@@ -148,9 +148,7 @@ export function asyncSignal<T>(
   options: AsyncSignalOptions<T> = {}
 ): AsyncSignal<T> {
   // Token tracks the current computation to handle cancellation
-  let token:
-    | { abortController: AbortController; context: AsyncSignalContext }
-    | undefined;
+  let token: { context: AsyncSignalContext } | undefined;
 
   /**
    * Handles promise state tracking and updates.
@@ -173,9 +171,6 @@ export function asyncSignal<T>(
      * Only updates if this is still the active computation.
      */
     const done = (status: "success" | "error", data: any) => {
-      // Abort the previous computation's controller
-      prevToken?.abortController.abort();
-
       // If token changed, a new computation started - don't update
       if (prevToken !== token) {
         return;
@@ -220,18 +215,11 @@ export function asyncSignal<T>(
    * the signal initially returns a loading loadable, then updates directly via
    * .set() when the promise settles (to avoid re-running the async function).
    */
-  const inner = signal<Loadable<T>>(({ track }) => {
-    // Create new abort controller for this computation
-    const abortController = new AbortController();
-
-    // Abort previous computation if it exists
-    token?.abortController.abort();
-
+  const inner = signal<Loadable<T>>(({ track, abortSignal }) => {
     // Update token to track this computation
     token = {
-      abortController,
       context: {
-        abortSignal: abortController.signal,
+        abortSignal,
         track,
       },
     };

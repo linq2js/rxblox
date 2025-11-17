@@ -16,6 +16,7 @@ import { useRerender } from "./useRerender";
 import { Signal } from "./types";
 import { isSignal } from "./signal";
 import { syncOnly } from "./utils/syncOnly";
+import { getContextType, withDispatchers } from "./dispatcher";
 
 /**
  * Reactive component that automatically re-renders when its signal dependencies change.
@@ -102,14 +103,20 @@ export const Reactive = memo((props: { exp: () => unknown }) => {
    */
   const result = useMemo(() => {
     dispatcher.clear();
-    return syncOnly(() => trackingToken.with(dispatcher, props.exp), {
-      message:
-        "rx() expression cannot return a promise. " +
-        "React components must render synchronously. " +
-        "If you need async data, use signal.async() or handle async operations in effects.",
-      context: "rx()",
-      mode: "error",
-    });
+    return syncOnly(
+      () =>
+        withDispatchers([trackingToken(dispatcher)], props.exp, {
+          contextType: "rx",
+        }),
+      {
+        message:
+          "rx() expression cannot return a promise. " +
+          "React components must render synchronously. " +
+          "If you need async data, use signal.async() or handle async operations in effects.",
+        context: "rx()",
+        mode: "error",
+      }
+    );
   }, [dispatcher, props.exp, rerender.data]);
 
   resultEvaluated.current = true;
@@ -262,6 +269,21 @@ export function rx(exp: () => unknown): ReactNode;
  * dependencies and re-renders when they change.
  */
 export function rx(...args: any[]): ReactNode {
+  // Check for nested rx() blocks - this is an anti-pattern
+  if (getContextType() === "rx") {
+    throw new Error(
+      "Nested rx() blocks detected. This is inefficient and unnecessary.\n\n" +
+        "❌ Don't do this:\n" +
+        "  rx(() => <div>{rx(() => <span>nested</span>)}</div>)\n\n" +
+        "✅ Instead, consolidate into a single rx() block:\n" +
+        "  rx(() => <div><span>not nested</span></div>)\n\n" +
+        "✅ Or move independent rx() blocks to stable scope:\n" +
+        "  const block = rx(() => <span>independent</span>);\n" +
+        "  return <div>{block}</div>;\n\n" +
+        "See: https://github.com/linq2js/rxblox#best-practices"
+    );
+  }
+
   let exp: () => ReactNode;
 
   // Overload 1: rx([signals], fn)

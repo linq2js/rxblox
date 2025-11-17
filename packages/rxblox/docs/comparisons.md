@@ -677,8 +677,8 @@ Ergonomic async state management:
 
 ```tsx
 const user = signal.async(async ({ track }) => {
-  const { userId } = track({ userId });
-  return await fetchUser(userId);
+  const tracked = track({ userId });
+  return await fetchUser(tracked.userId);
 });
 
 rx(() => {

@@ -11,7 +11,7 @@ import type {
 import type { Tag } from "./tag";
 import { trackingDispatcher, trackingToken } from "./trackingDispatcher";
 import { emitter } from "./emitter";
-import { getDispatcher } from "./dispatcher";
+import { getDispatcher, getContextType } from "./dispatcher";
 import { disposableToken } from "./disposableDispatcher";
 import { isPromiseLike } from "./isPromiseLike";
 import { batchToken } from "./batchDispatcher";
@@ -59,6 +59,8 @@ export type ComputedSignalContext = {
    * ```
    */
   track: TrackFunction;
+
+  readonly abortSignal: AbortSignal;
 };
 
 /**
@@ -188,10 +190,30 @@ export function signal<T>(
   value: T | ((context: ComputedSignalContext) => T),
   options: SignalOptions<NoInfer<T>> = {}
 ): MutableSignal<T> & { persistInfo: PersistInfo } {
+  // Prevent signal creation inside rx() blocks - this would create memory leaks
+  if (getContextType() === "rx") {
+    throw new Error(
+      "Cannot create signals inside rx() blocks. " +
+        "Signals created in rx() would be recreated on every re-render, causing memory leaks.\n\n" +
+        "❌ Don't do this:\n" +
+        "  rx(() => {\n" +
+        "    const count = signal(0);  // Created on every re-render!\n" +
+        "    return <div>{count()}</div>;\n" +
+        "  })\n\n" +
+        "✅ Instead, create signals in stable scope:\n" +
+        "  const MyComponent = blox(() => {\n" +
+        "    const count = signal(0);  // Created once\n" +
+        "    return <div>{rx(() => <span>{count()}</span>)}</div>;\n" +
+        "  });\n\n" +
+        "See: https://github.com/linq2js/rxblox#best-practices"
+    );
+  }
+
   // Cache for the current computed value (for computed signals)
   let current: { value: T } | undefined;
   const onCleanup = emitter<void>();
   const { equals = Object.is, persist, tags } = options;
+  let abortController: AbortController | undefined;
   let hydrate = () => {};
 
   // Persistence state
@@ -212,12 +234,20 @@ export function signal<T>(
   const compute = () => {
     // Clean up previous subscriptions
     onCleanup.emitAndClear();
+    abortController?.abort();
+    abortController = undefined;
 
     if (typeof value === "function") {
       // This is a computed signal - track dependencies
       const dispatcher = trackingDispatcher(recompute, onCleanup);
       const context: ComputedSignalContext = {
         track: dispatcher.track,
+        get abortSignal() {
+          if (!abortController) {
+            abortController = new AbortController();
+          }
+          return abortController.signal;
+        },
       };
       // Execute the computation function and track which signals it accesses
       // The dispatcher tracks implicit accesses (signal calls)

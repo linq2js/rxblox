@@ -48,10 +48,10 @@ const count = signal(0);
 // Computed value (auto-tracks dependencies)
 const doubled = signal(() => count() * 2);
 
-// Computed with explicit tracking
+// Computed with explicit tracking (lazy - only tracks accessed properties)
 const result = signal(({ track }) => {
-  const { condition, a, b } = track({ condition, a, b });
-  return condition ? a : b;
+  const tracked = track({ condition, a, b });
+  return tracked.condition ? tracked.a : tracked.b;
 });
 
 // With custom equality
@@ -286,6 +286,37 @@ Creates a reactive expression that re-renders when dependencies change.
 ```
 
 **Returns:** ReactNode
+
+**Important: Avoid Nested `rx()` Blocks**
+
+`rx()` will throw an error if called inside another `rx()` block. Nesting is inefficient and unnecessary:
+
+```tsx
+// ❌ BAD - Nested rx() blocks
+{rx(() => (
+  <div>
+    {rx(() => <span>Nested</span>)}  // Throws error!
+  </div>
+))}
+
+// ✅ GOOD - Consolidate into single rx()
+{rx(() => (
+  <div>
+    <span>Not nested</span>
+  </div>
+))}
+
+// ✅ GOOD - Move independent rx() to stable scope
+const block = rx(() => <span>Independent</span>);
+return <div>{block}</div>;
+```
+
+**Why?** Nested `rx()` blocks:
+- Create unnecessary tracking overhead
+- Recreate inner subscriptions on every outer re-run
+- Provide no benefit over consolidation or stable scope
+
+See [Best Practices](#best-practices) for more details.
 
 ---
 

@@ -1278,4 +1278,107 @@ describe("rx", () => {
       }).not.toThrow();
     });
   });
+
+  describe("nested rx() validation", () => {
+    it("should throw error when rx() is called inside another rx()", () => {
+      expect(() => {
+        render(
+          rx(() => (
+            <div>
+              {rx(() => <span>Nested</span>)}
+            </div>
+          ))
+        );
+      }).toThrow("Nested rx() blocks detected");
+    });
+
+    it("should throw with helpful error message", () => {
+      expect(() => {
+        render(
+          rx(() => (
+            <div>
+              {rx(() => <span>Nested</span>)}
+            </div>
+          ))
+        );
+      }).toThrow(/consolidate into a single rx\(\) block/);
+    });
+
+    it("should throw for multiple nested rx() calls", () => {
+      expect(() => {
+        render(
+          rx(() => (
+            <div>
+              {rx(() => <span>First</span>)}
+              {rx(() => <span>Second</span>)}
+            </div>
+          ))
+        );
+      }).toThrow("Nested rx() blocks detected");
+    });
+
+    it("should throw for deeply nested rx()", () => {
+      expect(() => {
+        render(
+          rx(() => (
+            <div>
+              {rx(() => (
+                <div>
+                  {rx(() => <span>Deep</span>)}
+                </div>
+              ))}
+            </div>
+          ))
+        );
+      }).toThrow("Nested rx() blocks detected");
+    });
+
+    it("should not throw for sibling rx() blocks", () => {
+      expect(() => {
+        const { container } = render(
+          <div>
+            {rx(() => <span>First</span>)}
+            {rx(() => <span>Second</span>)}
+          </div>
+        );
+        expect(container.textContent).toBe("FirstSecond");
+      }).not.toThrow();
+    });
+
+    it("should not throw for rx() with signal array overload", () => {
+      const count = signal(5);
+      expect(() => {
+        const { container } = render(
+          rx([count], (c) => <div>Count: {c}</div>)
+        );
+        expect(container.textContent).toBe("Count: 5");
+      }).not.toThrow();
+    });
+
+    it("should throw for nested rx() with signal array overload", () => {
+      const count = signal(5);
+      expect(() => {
+        render(
+          rx(() => (
+            <div>
+              {rx([count], (c) => <span>{c}</span>)}
+            </div>
+          ))
+        );
+      }).toThrow("Nested rx() blocks detected");
+    });
+
+    it("should throw for nested rx() with component overload", () => {
+      const value = signal("test");
+      expect(() => {
+        render(
+          rx(() => (
+            <div>
+              {rx("span", { children: value })}
+            </div>
+          ))
+        );
+      }).toThrow("Nested rx() blocks detected");
+    });
+  });
 });

@@ -18,7 +18,13 @@ const REMOVE_DISPATCHER = Symbol("removeDispatcher");
  * All possible context types in rxblox.
  * Each context type represents a different execution scope.
  */
-export type ContextType = "blox" | "effect" | "slot" | "signal" | "batch";
+export type ContextType =
+  | "blox"
+  | "effect"
+  | "slot"
+  | "signal"
+  | "batch"
+  | "rx";
 
 /**
  * Options for withDispatchers function.
@@ -66,23 +72,25 @@ export type DispatcherToken<T> = {
   (): DispatcherEntry<T>;
 
   /**
-   * Shortcut for withDispatchers([token(dispatcher)], fn)
+   * Shortcut for withDispatchers([token(dispatcher)], fn, options)
    * Executes a function with this dispatcher active.
    *
    * @param dispatcher - The dispatcher instance to use
    * @param fn - The function to execute with the dispatcher
+   * @param options - Optional configuration (e.g., contextType)
    * @returns The return value of the function
    */
-  with<R>(dispatcher: T, fn: () => R): R;
+  with<R>(dispatcher: T, fn: () => R, options?: WithDispatchersOptions): R;
 
   /**
-   * Shortcut for withDispatchers([token()], fn)
+   * Shortcut for withDispatchers([token()], fn, options)
    * Executes a function with this dispatcher removed/disabled.
    *
    * @param fn - The function to execute without the dispatcher
+   * @param options - Optional configuration (e.g., contextType)
    * @returns The return value of the function
    */
-  without<R>(fn: () => R): R;
+  without<R>(fn: () => R, options?: WithDispatchersOptions): R;
 };
 
 /**
@@ -184,11 +192,11 @@ export function dispatcherToken<T>(name: string): DispatcherToken<T> {
 
   return Object.assign(createEntry, {
     key,
-    with<R>(dispatcher: T, fn: () => R): R {
-      return withDispatchers([createEntry(dispatcher)], fn);
+    with<R>(dispatcher: T, fn: () => R, options?: WithDispatchersOptions): R {
+      return withDispatchers([createEntry(dispatcher)], fn, options);
     },
-    without<R>(fn: () => R): R {
-      return withDispatchers([createEntry()], fn);
+    without<R>(fn: () => R, options?: WithDispatchersOptions): R {
+      return withDispatchers([createEntry()], fn, options);
     },
   });
 }
@@ -237,6 +245,44 @@ export function getDispatcher<T>(token: DispatcherToken<T>): T | undefined {
  */
 export function getContextType(): ContextType | undefined {
   return current?.contextType;
+}
+
+/**
+ * Executes a function with a different context type while preserving all dispatchers.
+ *
+ * This is useful for internal operations that need to bypass context validation
+ * (e.g., creating prop signals inside blox, creating provider signals internally)
+ * without affecting the dispatcher state.
+ *
+ * @template T - The return type of the function
+ * @param contextType - The context type to set (or undefined to clear)
+ * @param fn - The function to execute with the new context type
+ * @returns The return value of the function
+ *
+ * @example
+ * ```ts
+ * // Create a signal with "signal" context to bypass "rx" validation
+ * const propSignal = withContextType("signal", () => signal(initialValue));
+ * ```
+ */
+export function withContextType<T>(
+  contextType: ContextType | undefined,
+  fn: () => T
+): T {
+  const prev = current;
+
+  // Keep all dispatchers, only change contextType
+  current = {
+    dispatchers: prev?.dispatchers ?? {},
+    contextType,
+  };
+
+  try {
+    return fn();
+  } finally {
+    // Always restore previous state
+    current = prev;
+  }
 }
 
 /**
@@ -340,9 +386,11 @@ export function withDispatchers<T>(
   );
 
   // Build new context with dispatchers and metadata
+  // Check if contextType is explicitly provided (even if undefined) vs not provided at all
+  const hasContextType = options !== undefined && "contextType" in options;
   current = {
     dispatchers: newDispatchers,
-    contextType: options?.contextType ?? prev?.contextType,
+    contextType: hasContextType ? options.contextType : prev?.contextType,
   };
 
   try {

@@ -876,35 +876,6 @@ describe("provider", () => {
         expect(container.textContent).toContain("Consumer2: light");
       });
     });
-
-    it("should handle provider with conditional rendering", async () => {
-      const [useCount, CountProvider] = provider("count", 0);
-
-      const ConditionalComponent = blox<{ show: boolean }>((props) => {
-        const count = useCount();
-        return <div>{rx(() => (props.show ? count() : null))}</div>;
-      });
-
-      const Parent = blox<{ count: number; show: boolean }>((props) => {
-        return rx(() => (
-          <CountProvider value={props.count}>
-            <ConditionalComponent show={props.show} />
-          </CountProvider>
-        ));
-      });
-
-      const { container, rerender } = render(<Parent count={5} show={true} />);
-      await waitFor(() => {
-        expect(container.textContent).toBe("5");
-      });
-
-      act(() => {
-        rerender(<Parent count={10} show={false} />);
-      });
-      await waitFor(() => {
-        expect(container.textContent).toBe("");
-      });
-    });
   });
 
   describe("error handling for nested providers", () => {

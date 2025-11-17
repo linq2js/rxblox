@@ -9,7 +9,12 @@ import {
 } from "react";
 import { MutableSignal, Signal } from "./types";
 import { isSignal, signal } from "./signal";
-import { dispatcherToken, getDispatcher } from "./dispatcher";
+import {
+  dispatcherToken,
+  getDispatcher,
+  getContextType,
+} from "./dispatcher";
+import { trackingToken } from "./trackingDispatcher";
 
 /**
  * Dispatcher token for provider resolution.
@@ -77,13 +82,18 @@ function ProviderContainer<T>(
     return {
       getSignal() {
         if (!currentSignal) {
-          const initialValue =
-            typeof currentValue === "function"
-              ? () => currentValue
-              : currentValue;
-          currentSignal = signal(initialValue, {
-            equals: providerDefRef.current.equals,
-          });
+          // Temporarily clear context to allow signal creation
+          // Provider signals are created once and stored, not recreated on every render
+          // Clear context type to prevent rx() validation errors
+          currentSignal = trackingToken.without(() => {
+            const initialValue =
+              typeof currentValue === "function"
+                ? () => currentValue
+                : currentValue;
+            return signal(initialValue, {
+              equals: providerDefRef.current.equals,
+            });
+          }, { contextType: undefined });
         }
         return currentSignal;
       },
@@ -226,6 +236,25 @@ export function provider<T>(
   initialValue: T,
   options: ProviderOptions<T> = {}
 ) {
+  // Prevent provider creation inside rx() blocks
+  if (getContextType() === "rx") {
+    throw new Error(
+      "Cannot create providers inside rx() blocks. " +
+        "Providers created in rx() would be recreated on every re-render, causing memory leaks.\n\n" +
+        "❌ Don't do this:\n" +
+        "  rx(() => {\n" +
+        "    const [useValue, ValueProvider] = provider('value', 0);  // Created on every re-render!\n" +
+        "    return <div>Content</div>;\n" +
+        "  })\n\n" +
+        "✅ Instead, create providers in stable scope:\n" +
+        "  const [useValue, ValueProvider] = provider('value', 0);  // Created once\n" +
+        "  const MyComponent = blox(() => {\n" +
+        "    return <ValueProvider value={0}><Child /></ValueProvider>;\n" +
+        "  });\n\n" +
+        "See: https://github.com/linq2js/rxblox#best-practices"
+    );
+  }
+
   const providerDef: ProviderDef<T> = {
     initialValue,
     name,

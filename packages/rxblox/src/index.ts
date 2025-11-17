@@ -59,7 +59,7 @@ export type { InferSignalValues } from "./batch";
 export type { SlotOptions, SlotMode } from "./slot";
 
 // Dispatcher system
-export { getContextType } from "./dispatcher";
+export { getContextType, withContextType } from "./dispatcher";
 export type { ContextType } from "./dispatcher";
 
 // Development utilities

@@ -588,4 +588,280 @@ describe("effectDispatcher", () => {
       expect(cleanup).toHaveBeenCalledTimes(2);
     });
   });
+
+  describe("abortSignal", () => {
+    it("should provide abortSignal in effect context", () => {
+      let capturedSignal: AbortSignal | undefined;
+
+      effect(({ abortSignal }) => {
+        capturedSignal = abortSignal;
+      });
+
+      expect(capturedSignal).toBeInstanceOf(AbortSignal);
+      expect(capturedSignal?.aborted).toBe(false);
+    });
+
+    it("should abort signal when effect is cleaned up", () => {
+      let capturedSignal: AbortSignal | undefined;
+
+      const e = effect(({ abortSignal }) => {
+        capturedSignal = abortSignal;
+      });
+
+      expect(capturedSignal?.aborted).toBe(false);
+
+      // Run cleanup
+      const cleanup = e.run();
+      cleanup();
+
+      expect(capturedSignal?.aborted).toBe(true);
+    });
+
+    it("should abort signal when effect re-runs due to dependency change", async () => {
+      const count = signal(0);
+      const signals: AbortSignal[] = [];
+
+      effect(({ abortSignal }) => {
+        count(); // Track dependency
+        signals.push(abortSignal);
+      });
+
+      expect(signals).toHaveLength(1);
+      expect(signals[0].aborted).toBe(false);
+
+      // Trigger re-run
+      count.set(1);
+
+      expect(signals).toHaveLength(2);
+      expect(signals[0].aborted).toBe(true); // First signal should be aborted
+      expect(signals[1].aborted).toBe(false); // New signal should not be aborted
+    });
+
+    it("should create new abortSignal for each effect run", () => {
+      const count = signal(0);
+      const signals: AbortSignal[] = [];
+
+      effect(({ abortSignal }) => {
+        count();
+        signals.push(abortSignal);
+      });
+
+      count.set(1);
+      count.set(2);
+
+      expect(signals).toHaveLength(3);
+      // Each signal should be different
+      expect(signals[0]).not.toBe(signals[1]);
+      expect(signals[1]).not.toBe(signals[2]);
+      // Previous signals should be aborted
+      expect(signals[0].aborted).toBe(true);
+      expect(signals[1].aborted).toBe(true);
+      expect(signals[2].aborted).toBe(false);
+    });
+
+    it("should abort fetch requests when effect is cleaned up", async () => {
+      let fetchAborted = false;
+      global.fetch = vi.fn().mockImplementation(
+        (url: string, options?: RequestInit) => {
+          return new Promise((resolve, reject) => {
+            options?.signal?.addEventListener("abort", () => {
+              fetchAborted = true;
+              reject(new DOMException("Aborted", "AbortError"));
+            });
+            // Never resolve to simulate long request
+          });
+        }
+      );
+
+      const userId = signal(1);
+
+      effect(({ abortSignal }) => {
+        const id = userId();
+        fetch(`/api/users/${id}`, { signal: abortSignal }).catch(() => {
+          // Ignore abort errors
+        });
+      });
+
+      expect(fetchAborted).toBe(false);
+
+      // Trigger re-run, should abort previous fetch
+      userId.set(2);
+
+      // Wait a bit for abort to propagate
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      expect(fetchAborted).toBe(true);
+    });
+
+    it("should handle multiple async operations with same abortSignal", async () => {
+      const abortedOperations: string[] = [];
+
+      global.fetch = vi.fn().mockImplementation(
+        (url: string, options?: RequestInit) => {
+          return new Promise((resolve, reject) => {
+            options?.signal?.addEventListener("abort", () => {
+              abortedOperations.push(url as string);
+              reject(new DOMException("Aborted", "AbortError"));
+            });
+          });
+        }
+      );
+
+      const trigger = signal(0);
+
+      effect(({ abortSignal }) => {
+        trigger();
+        fetch("/api/users", { signal: abortSignal }).catch(() => {});
+        fetch("/api/posts", { signal: abortSignal }).catch(() => {});
+        fetch("/api/comments", { signal: abortSignal }).catch(() => {});
+      });
+
+      // Trigger re-run
+      trigger.set(1);
+
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      // All three requests should be aborted
+      expect(abortedOperations).toContain("/api/users");
+      expect(abortedOperations).toContain("/api/posts");
+      expect(abortedOperations).toContain("/api/comments");
+    });
+
+    it("should not abort signal if effect doesn't access it", () => {
+      const count = signal(0);
+      let runCount = 0;
+
+      effect(() => {
+        count();
+        runCount++;
+      });
+
+      expect(runCount).toBe(1);
+
+      count.set(1);
+      expect(runCount).toBe(2);
+
+      // No abort operations, should work fine
+    });
+
+    it("should work with effect cleanup function and abortSignal", async () => {
+      const cleanups: string[] = [];
+      const trigger = signal(0);
+
+      effect(({ abortSignal }) => {
+        trigger();
+
+        const timer = setTimeout(() => {
+          cleanups.push("timeout");
+        }, 100);
+
+        abortSignal.addEventListener("abort", () => {
+          cleanups.push("abort");
+          clearTimeout(timer);
+        });
+
+        return () => {
+          cleanups.push("cleanup");
+        };
+      });
+
+      expect(cleanups).toEqual([]);
+
+      // Trigger re-run
+      trigger.set(1);
+
+      expect(cleanups).toEqual(["cleanup", "abort"]);
+    });
+
+    it("should abort on manual cleanup call", () => {
+      let capturedSignal: AbortSignal | undefined;
+
+      const e = effect(({ abortSignal }) => {
+        capturedSignal = abortSignal;
+      });
+
+      expect(capturedSignal?.aborted).toBe(false);
+
+      const cleanup = e.run();
+      cleanup();
+
+      expect(capturedSignal?.aborted).toBe(true);
+    });
+  });
+
+  describe("effect creation in rx() validation", () => {
+    it("should throw error when creating effect inside rx()", async () => {
+      const React = await import("react");
+      const { render } = await import("@testing-library/react");
+      const { rx } = await import("./rx");
+
+      expect(() => {
+        render(
+          rx(() => {
+            effect(() => {
+              console.log("leak");
+            });
+            return React.createElement("div", null, "Content");
+          })
+        );
+      }).toThrow("Cannot create effects inside rx() blocks");
+    });
+
+    it("should throw with helpful error message", async () => {
+      const React = await import("react");
+      const { render } = await import("@testing-library/react");
+      const { rx } = await import("./rx");
+
+      expect(() => {
+        render(
+          rx(() => {
+            effect(() => {
+              console.log("leak");
+            });
+            return React.createElement("div", null, "Content");
+          })
+        );
+      }).toThrow(/causing subscription leaks/);
+    });
+
+    it("should throw for effect with dependencies in rx()", async () => {
+      const React = await import("react");
+      const { render } = await import("@testing-library/react");
+      const { rx } = await import("./rx");
+      const { signal } = await import("./signal");
+      const count = signal(0);
+
+      expect(() => {
+        render(
+          rx(() => {
+            effect(() => {
+              console.log("Count:", count());
+            });
+            return React.createElement("div", null, "Content");
+          })
+        );
+      }).toThrow("Cannot create effects inside rx() blocks");
+    });
+
+    it("should not throw when creating effect in stable scope", async () => {
+      const React = await import("react");
+      const { render } = await import("@testing-library/react");
+      const { rx } = await import("./rx");
+      const { blox } = await import("./blox");
+
+      expect(() => {
+        const Component = blox(() => {
+          effect(() => {
+            console.log("once");
+          }); // Created in stable scope
+          return React.createElement(
+            "div",
+            null,
+            rx(() => React.createElement("span", null, "Content"))
+          );
+        });
+        render(React.createElement(Component));
+      }).not.toThrow();
+    });
+  });
 });

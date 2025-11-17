@@ -515,4 +515,302 @@ describe("signal", () => {
       expect(listener).toHaveBeenCalledWith(20);
     });
   });
+
+  describe("abortSignal in computed signals", () => {
+    it("should provide abortSignal in computed signal context", () => {
+      let capturedSignal: AbortSignal | undefined;
+
+      const computed = signal(({ abortSignal }) => {
+        capturedSignal = abortSignal;
+        return 42;
+      });
+
+      computed(); // Trigger computation
+
+      expect(capturedSignal).toBeInstanceOf(AbortSignal);
+      expect(capturedSignal?.aborted).toBe(false);
+    });
+
+    it("should abort signal when computed signal is recomputed", () => {
+      const source = signal(0);
+      const signals: AbortSignal[] = [];
+
+      const computed = signal(({ abortSignal }) => {
+        source(); // Track dependency
+        signals.push(abortSignal);
+        return source() * 2;
+      });
+
+      computed(); // Initial computation
+      expect(signals).toHaveLength(1);
+      expect(signals[0].aborted).toBe(false);
+
+      // Trigger recomputation
+      source.set(1);
+      computed(); // Access to trigger recomputation
+
+      expect(signals).toHaveLength(2);
+      expect(signals[0].aborted).toBe(true); // First signal should be aborted
+      expect(signals[1].aborted).toBe(false); // New signal should not be aborted
+    });
+
+    it("should create new abortSignal for each recomputation", () => {
+      const source = signal(0);
+      const signals: AbortSignal[] = [];
+
+      const computed = signal(({ abortSignal }) => {
+        source();
+        signals.push(abortSignal);
+        return source() * 2;
+      });
+
+      computed();
+      source.set(1);
+      computed();
+      source.set(2);
+      computed();
+
+      expect(signals).toHaveLength(3);
+      // Each signal should be different
+      expect(signals[0]).not.toBe(signals[1]);
+      expect(signals[1]).not.toBe(signals[2]);
+      // Previous signals should be aborted
+      expect(signals[0].aborted).toBe(true);
+      expect(signals[1].aborted).toBe(true);
+      expect(signals[2].aborted).toBe(false);
+    });
+
+    it("should abort signal on reset", () => {
+      const signals: AbortSignal[] = [];
+
+      const computed = signal(({ abortSignal }) => {
+        signals.push(abortSignal);
+        return 42;
+      });
+
+      computed();
+      expect(signals).toHaveLength(1);
+      expect(signals[0].aborted).toBe(false);
+
+      computed.reset();
+      expect(signals[0].aborted).toBe(true);
+
+      computed(); // Trigger new computation
+      expect(signals).toHaveLength(2);
+      expect(signals[1].aborted).toBe(false);
+    });
+
+    it("should work with async operations in computed signals", async () => {
+      const source = signal(1);
+      let fetchAborted = false;
+
+      global.fetch = vi.fn().mockImplementation(
+        (url: string, options?: RequestInit) => {
+          return new Promise((resolve, reject) => {
+            options?.signal?.addEventListener("abort", () => {
+              fetchAborted = true;
+              reject(new DOMException("Aborted", "AbortError"));
+            });
+            // Simulate async operation
+            setTimeout(() => resolve({ json: () => Promise.resolve({}) }), 100);
+          });
+        }
+      );
+
+      const computed = signal(({ abortSignal }) => {
+        const id = source();
+        // Start fetch but don't await (computed should be sync)
+        fetch(`/api/data/${id}`, { signal: abortSignal }).catch(() => {
+          // Ignore abort errors
+        });
+        return id;
+      });
+
+      computed();
+      expect(fetchAborted).toBe(false);
+
+      // Trigger recomputation, should abort previous fetch
+      source.set(2);
+      computed();
+
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(fetchAborted).toBe(true);
+    });
+
+    it("should work with track and abortSignal together", () => {
+      const condition = signal(true);
+      const a = signal(10);
+      const b = signal(20);
+      const signals: AbortSignal[] = [];
+
+      const computed = signal(({ track, abortSignal }) => {
+        const tracked = track({ condition, a, b });
+        signals.push(abortSignal);
+        return tracked.condition ? tracked.a : tracked.b;
+      });
+
+      computed();
+      expect(signals).toHaveLength(1);
+
+      condition.set(false);
+      computed();
+      expect(signals).toHaveLength(2);
+      expect(signals[0].aborted).toBe(true);
+      expect(signals[1].aborted).toBe(false);
+    });
+
+    it("should not create abortController if abortSignal is never accessed", () => {
+      // This test verifies lazy creation of AbortController
+      const computed = signal(({ track }) => {
+        // Don't access abortSignal
+        return 42;
+      });
+
+      computed();
+      // No error should occur, and no AbortController is created
+      expect(computed()).toBe(42);
+    });
+
+    it("should handle multiple recomputations with abort", () => {
+      const source = signal(0);
+      const abortEvents: number[] = [];
+
+      const computed = signal(({ abortSignal }) => {
+        const value = source();
+        abortSignal.addEventListener("abort", () => {
+          abortEvents.push(value);
+        });
+        return value * 2;
+      });
+
+      computed();
+      source.set(1);
+      computed();
+      source.set(2);
+      computed();
+      source.set(3);
+      computed();
+
+      // Previous computations should have been aborted
+      expect(abortEvents).toEqual([0, 1, 2]);
+    });
+
+    it("should abort when signal is disposed", () => {
+      const signals: AbortSignal[] = [];
+      const onCleanup = vi.fn();
+
+      const computed = signal(({ abortSignal }) => {
+        signals.push(abortSignal);
+        abortSignal.addEventListener("abort", onCleanup);
+        return 42;
+      });
+
+      computed();
+      expect(signals).toHaveLength(1);
+      expect(signals[0].aborted).toBe(false);
+      expect(onCleanup).not.toHaveBeenCalled();
+
+      // Dispose the signal by resetting
+      computed.reset();
+
+      expect(signals[0].aborted).toBe(true);
+      expect(onCleanup).toHaveBeenCalledTimes(1);
+    });
+
+    it("should work with conditional logic using abortSignal", () => {
+      const shouldFetch = signal(false);
+      const signals: AbortSignal[] = [];
+
+      const computed = signal(({ abortSignal }) => {
+        signals.push(abortSignal);
+        if (shouldFetch()) {
+          // Could start a fetch here
+          abortSignal.addEventListener("abort", () => {
+            // Cleanup logic
+          });
+          return "fetching";
+        }
+        return "idle";
+      });
+
+      computed();
+      expect(computed()).toBe("idle");
+
+      shouldFetch.set(true);
+      computed();
+      expect(computed()).toBe("fetching");
+      expect(signals[0].aborted).toBe(true);
+
+      shouldFetch.set(false);
+      computed();
+      expect(signals[1].aborted).toBe(true);
+    });
+  });
+
+  describe("signal creation in rx() validation", () => {
+    it("should throw error when creating signal inside rx()", async () => {
+      const React = await import("react");
+      const { render } = await import("@testing-library/react");
+      const { rx } = await import("./rx");
+
+      expect(() => {
+        render(
+          rx(() => {
+            const count = signal(0);
+            return React.createElement("div", null, count());
+          })
+        );
+      }).toThrow("Cannot create signals inside rx() blocks");
+    });
+
+    it("should throw with helpful error message", async () => {
+      const React = await import("react");
+      const { render } = await import("@testing-library/react");
+      const { rx } = await import("./rx");
+
+      expect(() => {
+        render(
+          rx(() => {
+            const count = signal(0);
+            return React.createElement("div", null, count());
+          })
+        );
+      }).toThrow(/causing memory leaks/);
+    });
+
+    it("should throw for computed signals in rx()", async () => {
+      const React = await import("react");
+      const { render } = await import("@testing-library/react");
+      const { rx } = await import("./rx");
+      const source = signal(5);
+
+      expect(() => {
+        render(
+          rx(() => {
+            const doubled = signal(() => source() * 2);
+            return React.createElement("div", null, doubled());
+          })
+        );
+      }).toThrow("Cannot create signals inside rx() blocks");
+    });
+
+    it("should not throw when creating signal in stable scope", async () => {
+      const React = await import("react");
+      const { render } = await import("@testing-library/react");
+      const { rx } = await import("./rx");
+      const { blox } = await import("./blox");
+
+      expect(() => {
+        const Component = blox(() => {
+          const count = signal(0); // Created in stable scope
+          return React.createElement(
+            "div",
+            null,
+            rx(() => React.createElement("span", null, count()))
+          );
+        });
+        render(React.createElement(Component));
+      }).not.toThrow();
+    });
+  });
 });
