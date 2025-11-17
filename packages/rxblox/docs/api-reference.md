@@ -621,10 +621,30 @@ const MyComponent = blox(() => {
 });
 ```
 
+**Example: With Return Value**
+
+```tsx
+const MyComponent = blox(() => {
+  const divRef = blox.ref<HTMLDivElement>();
+
+  blox.onMount(() => {
+    const width = divRef.ready((div) => div.clientWidth);
+    // Type: number | undefined
+    
+    if (width) {
+      console.log("Div width:", width);
+    }
+  });
+
+  return <div ref={divRef}>Content</div>;
+});
+```
+
 **Key Features:**
 
 - ✅ **Type-safe**: Automatic type narrowing from `T | null` to `T`
 - ✅ **No null checking**: `ready()` callback only runs when ref is set
+- ✅ **Returns callback result**: Get values directly from the callback
 - ✅ **Simple**: Just a synchronous null check wrapper
 - ✅ **Flexible**: Use in `blox.onMount()` or `effect()`
 
@@ -715,9 +735,39 @@ const MyComponent = blox(() => {
 });
 ```
 
+**Example: With Return Value**
+
+```tsx
+const MyComponent = blox(() => {
+  const canvasRef = blox.ref<HTMLCanvasElement>();
+  const containerRef = blox.ref<HTMLDivElement>();
+
+  blox.onMount(() => {
+    const dimensions = blox.ready([canvasRef, containerRef], (canvas, container) => ({
+      canvasWidth: canvas.width,
+      canvasHeight: canvas.height,
+      containerWidth: container.clientWidth,
+      containerHeight: container.clientHeight,
+    }));
+    // Type: { canvasWidth: number; ... } | undefined
+
+    if (dimensions) {
+      console.log("Setup complete:", dimensions);
+    }
+  });
+
+  return (
+    <div ref={containerRef}>
+      <canvas ref={canvasRef} />
+    </div>
+  );
+});
+```
+
 **Key Features:**
 
 - ✅ **Type-safe tuple inference**: Each element has correct type
+- ✅ **Returns callback result**: Get values from all refs in one call
 - ✅ **No null checking**: Callback only runs when all refs are set
 - ✅ **Simple**: Just a synchronous check of all refs
 - ✅ **Flexible**: Use in `blox.onMount()` or `effect()`

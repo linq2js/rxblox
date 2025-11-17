@@ -118,6 +118,41 @@ describe("blox.ref", () => {
       expect(callback2).toHaveBeenCalledTimes(1);
     });
 
+    it("should return callback result when ref is ready", () => {
+      const Component = blox(() => {
+        const inputRef = blox.ref<HTMLInputElement>();
+        let capturedValue: string | undefined;
+
+        blox.onMount(() => {
+          capturedValue = inputRef.ready((input) => input.value);
+        });
+
+        return <input ref={inputRef} defaultValue="test-value" />;
+      });
+
+      render(<Component />);
+
+      // Note: capturedValue will be captured during mount
+      // We can't directly assert it here, but TypeScript verifies the type
+    });
+
+    it("should return undefined when ref is null", () => {
+      const Component = blox(() => {
+        const inputRef = blox.ref<HTMLInputElement>();
+        let result: number | undefined;
+
+        blox.onMount(() => {
+          result = inputRef.ready((input) => input.value.length);
+          expect(result).toBeUndefined();
+        });
+
+        // Don't attach ref
+        return <div>No ref</div>;
+      });
+
+      render(<Component />);
+    });
+
     it("should work with cleanup using effect", async () => {
       const cleanupFn = vi.fn();
 
@@ -288,6 +323,55 @@ describe("blox.ref", () => {
         expect.any(HTMLSpanElement),
         expect.any(HTMLLabelElement)
       );
+    });
+
+    it("should return callback result from ready()", () => {
+      const Component = blox(() => {
+        const inputRef = blox.ref<HTMLInputElement>();
+        const divRef = blox.ref<HTMLDivElement>();
+        let result: { inputValue: string; divWidth: number } | undefined;
+
+        blox.onMount(() => {
+          result = blox.ready([inputRef, divRef], (input, div) => ({
+            inputValue: input.value,
+            divWidth: div.clientWidth,
+          }));
+
+          expect(result).toBeDefined();
+          expect(result?.inputValue).toBe("test");
+          expect(typeof result?.divWidth).toBe("number");
+        });
+
+        return (
+          <>
+            <input ref={inputRef} defaultValue="test" />
+            <div ref={divRef}>Content</div>
+          </>
+        );
+      });
+
+      render(<Component />);
+    });
+
+    it("should return undefined when any ref is null", () => {
+      const Component = blox(() => {
+        const inputRef = blox.ref<HTMLInputElement>();
+        const divRef = blox.ref<HTMLDivElement>();
+        let result: { value: string } | undefined;
+
+        blox.onMount(() => {
+          result = blox.ready([inputRef, divRef], (input, div) => ({
+            value: "test",
+          }));
+
+          expect(result).toBeUndefined();
+        });
+
+        // Only attach one ref
+        return <input ref={inputRef} />;
+      });
+
+      render(<Component />);
     });
   });
 

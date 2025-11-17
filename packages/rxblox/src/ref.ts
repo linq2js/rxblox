@@ -17,8 +17,10 @@ export interface BloxRef<T> {
    * Provides automatic null/undefined checking and type narrowing.
    * **Must be called inside `blox.onMount()` or `effect()`** where the ref is already set.
    *
-   * @param callback - Function to execute when the element is ready.
-   *                   Receives the non-nullable element as argument.
+   * @param callback - Function to execute when the value is ready.
+   *                   Receives the non-nullable value as argument.
+   *                   Can return a value that will be returned by `ready()`.
+   * @returns The callback's return value, or `undefined` if ref is null/undefined.
    *
    * @example
    * ```tsx
@@ -36,21 +38,17 @@ export interface BloxRef<T> {
    *
    * @example
    * ```tsx
-   * // With cleanup
-   * const videoRef = blox.ref<HTMLVideoElement>();
+   * // With return value
+   * const divRef = blox.ref<HTMLDivElement>();
    *
    * blox.onMount(() => {
-   *   videoRef.ready((video) => {
-   *     video.play();
-   *
-   *     blox.onUnmount(() => {
-   *       video.pause();
-   *     });
-   *   });
+   *   const width = divRef.ready((div) => div.clientWidth);
+   *   // Type: number | undefined
+   *   console.log(width);
    * });
    * ```
    */
-  ready(callback: (element: Exclude<T, null | undefined>) => void): void;
+  ready<R>(callback: (value: Exclude<T, null | undefined>) => R): R | undefined;
 }
 
 /**
@@ -114,12 +112,15 @@ export function ref<T>(): BloxRef<T> {
   // Create a plain ref object (no hooks needed)
   const bloxRef: any = {
     current: null as T | null,
-    ready(callback: (element: Exclude<T, null | undefined>) => void): void {
+    ready<R>(
+      callback: (value: Exclude<T, null | undefined>) => R
+    ): R | undefined {
       // Simply check if ref is ready and call callback
       // No lifecycle registration - caller should use effect() or blox.onMount()
       if (bloxRef.current != null) {
-        callback(bloxRef.current as Exclude<T, null | undefined>);
+        return callback(bloxRef.current as Exclude<T, null | undefined>);
       }
+      return undefined;
     },
   };
 
@@ -146,9 +147,12 @@ type ExtractRefTypes<T extends readonly BloxRef<any>[]> = {
  * Exported as `blox.ready()`.
  *
  * @template T - Tuple of BloxRef types
+ * @template R - Return type of callback
  * @param refs - Array of BloxRef objects to wait for
- * @param callback - Function to execute when all elements are ready.
- *                   Receives all non-nullable elements as arguments.
+ * @param callback - Function to execute when all values are ready.
+ *                   Receives all non-nullable values as arguments.
+ *                   Can return a value that will be returned by `ready()`.
+ * @returns The callback's return value, or `undefined` if any ref is null/undefined.
  *
  * @example
  * ```tsx
@@ -178,27 +182,29 @@ type ExtractRefTypes<T extends readonly BloxRef<any>[]> = {
  *
  * @example
  * ```tsx
- * // With cleanup
+ * // With return value
  * blox.onMount(() => {
- *   blox.ready([ref1, ref2], (el1, el2) => {
- *     el1.addEventListener("click", handler);
- *
- *     blox.onUnmount(() => {
- *       el1.removeEventListener("click", handler);
- *     });
- *   });
+ *   const dimensions = blox.ready([canvas, container], (canvas, container) => ({
+ *     canvasWidth: canvas.width,
+ *     containerWidth: container.clientWidth,
+ *   }));
+ *   // Type: { canvasWidth: number; containerWidth: number } | undefined
+ *   if (dimensions) {
+ *     console.log(dimensions);
+ *   }
  * });
  * ```
  */
-export function ready<const T extends readonly BloxRef<any>[]>(
+export function ready<const T extends readonly BloxRef<any>[], R>(
   refs: T,
-  callback: (...elements: ExtractRefTypes<T>) => void
-): void {
+  callback: (...values: ExtractRefTypes<T>) => R
+): R | undefined {
   // Simply check if all refs are ready and call callback
   // No lifecycle registration - caller should use effect() or blox.onMount()
   const allReady = refs.every((ref) => ref.current != null);
   if (allReady) {
-    const elements = refs.map((ref) => ref.current) as ExtractRefTypes<T>;
-    callback(...elements);
+    const values = refs.map((ref) => ref.current) as ExtractRefTypes<T>;
+    return callback(...values);
   }
+  return undefined;
 }
