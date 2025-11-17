@@ -9,7 +9,7 @@ import { action as createAction } from "./action";
 import { cancellableAction, aborter } from "./cancellableAction";
 import { snapshot } from "./snapshot";
 import { history } from "./history";
-import { createRef } from "./ref";
+import { ref as createRef, ready as readyMultiple } from "./ref";
 import { slot, fill } from "./slot";
 
 export const blox = Object.assign(createBlox, {
@@ -18,6 +18,7 @@ export const blox = Object.assign(createBlox, {
   onUnmount,
   onRender,
   ref: createRef,
+  ready: readyMultiple,
   slot,
   fill,
 });
@@ -34,6 +35,7 @@ export const action = Object.assign(createAction, {
 });
 
 export type { Handle, AsyncSignalContext };
+export type { BloxRef } from "./ref";
 export type { Action, ActionOptions, ActionEvents } from "./action";
 export type { CancellableAction } from "./cancellableAction";
 export type { HistoryEntry, HistoryOptions, HistoryQuery } from "./history";

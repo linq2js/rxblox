@@ -19,6 +19,8 @@ Complete API documentation for all rxblox functions and utilities.
 - [blox.onMount](#bloxonmount)
 - [blox.onUnmount](#bloxonunmount)
 - [blox.handle](#bloxhandlet)
+- [blox.ref](#bloxreft)
+- [blox.ready](#bloxready)
 - [blox.slot](#bloxslot)
 - [blox.fill](#bloxfill)
 - [provider](#providert)
@@ -541,6 +543,198 @@ type Handle<T> = {
 - The value is `undefined` during the definition phase
 - Must use `rx()` to access the value in JSX
 - Can access directly in event handlers
+
+---
+
+## `blox.ref<T>()`
+
+Creates a reactive ref for DOM elements with automatic null/undefined checking.
+
+**Must be called inside a `blox` component.**
+
+Returns a `BloxRef<T>` object compatible with React's ref system, with an additional `ready()` helper method.
+
+**Type:**
+
+```ts
+interface BloxRef<T> {
+  readonly current: T | null;
+  ready(callback: (element: T) => void): void;
+}
+```
+
+**Example: Basic Usage**
+
+```tsx
+const MyComponent = blox(() => {
+  const inputRef = blox.ref<HTMLInputElement>();
+
+  blox.onMount(() => {
+    inputRef.ready((input) => {
+      // Type: HTMLInputElement (not null/undefined)
+      input.focus();
+    });
+  });
+
+  return <input ref={inputRef} />;
+});
+```
+
+**Example: Event Listeners with Cleanup**
+
+```tsx
+const MyComponent = blox(() => {
+  const buttonRef = blox.ref<HTMLButtonElement>();
+
+  blox.onMount(() => {
+    buttonRef.ready((button) => {
+      const handleClick = () => console.log("clicked");
+      button.addEventListener("click", handleClick);
+    });
+  });
+
+  // Cleanup registered separately
+  blox.onUnmount(() => {
+    if (buttonRef.current) {
+      buttonRef.current.removeEventListener("click", handleClick);
+    }
+  });
+
+  return <button ref={buttonRef}>Click Me</button>;
+});
+```
+
+**Example: With Effects**
+
+```tsx
+const MyComponent = blox(() => {
+  const videoRef = blox.ref<HTMLVideoElement>();
+
+  effect(() => {
+    videoRef.ready((video) => {
+      video.play();
+      return () => video.pause(); // Cleanup
+    });
+  });
+
+  return <video ref={videoRef} src="video.mp4" />;
+});
+```
+
+**Key Features:**
+
+- ✅ **Type-safe**: Automatic type narrowing from `T | null` to `T`
+- ✅ **No null checking**: `ready()` callback only runs when ref is set
+- ✅ **Simple**: Just a synchronous null check wrapper
+- ✅ **Flexible**: Use in `blox.onMount()` or `effect()`
+
+**When to Use:**
+
+- DOM manipulation after element mounts
+- Setting up event listeners
+- Focus management
+- Measuring element dimensions
+- Integration with third-party libraries
+
+**Notes:**
+
+- `ready()` must be called inside `blox.onMount()` or `effect()` where refs are already set
+- `ready()` is synchronous - it checks immediately and calls the callback if ref is not null
+- For cleanup, use `blox.onUnmount()` or effect's return function
+
+---
+
+## `blox.ready(refs, callback)`
+
+Executes a callback when all refs are ready (not null or undefined).
+
+**Must be called inside `blox.onMount()` or `effect()`** where refs are already set.
+
+Provides automatic null/undefined checking and type narrowing for multiple refs.
+
+**Signature:**
+
+```ts
+function ready<T extends readonly BloxRef<any>[]>(
+  refs: T,
+  callback: (...elements: ExtractedTypes<T>) => void
+): void;
+```
+
+**Example: Multiple Refs**
+
+```tsx
+const MyComponent = blox(() => {
+  const inputRef = blox.ref<HTMLInputElement>();
+  const buttonRef = blox.ref<HTMLButtonElement>();
+  const divRef = blox.ref<HTMLDivElement>();
+
+  blox.onMount(() => {
+    blox.ready([inputRef, buttonRef, divRef], (input, button, div) => {
+      // All types are non-nullable
+      input.focus();
+      button.disabled = false;
+      div.style.opacity = "1";
+    });
+  });
+
+  return (
+    <>
+      <input ref={inputRef} />
+      <button ref={buttonRef}>Submit</button>
+      <div ref={divRef}>Content</div>
+    </>
+  );
+});
+```
+
+**Example: Coordinated Setup**
+
+```tsx
+const MyComponent = blox(() => {
+  const canvasRef = blox.ref<HTMLCanvasElement>();
+  const containerRef = blox.ref<HTMLDivElement>();
+
+  blox.onMount(() => {
+    blox.ready([canvasRef, containerRef], (canvas, container) => {
+      // Set canvas size based on container
+      canvas.width = container.clientWidth;
+      canvas.height = container.clientHeight;
+
+      // Start rendering
+      const ctx = canvas.getContext("2d");
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    });
+  });
+
+  return (
+    <div ref={containerRef}>
+      <canvas ref={canvasRef} />
+    </div>
+  );
+});
+```
+
+**Key Features:**
+
+- ✅ **Type-safe tuple inference**: Each element has correct type
+- ✅ **No null checking**: Callback only runs when all refs are set
+- ✅ **Simple**: Just a synchronous check of all refs
+- ✅ **Flexible**: Use in `blox.onMount()` or `effect()`
+
+**When to Use:**
+
+- Coordinating setup across multiple DOM elements
+- Measuring relative dimensions
+- Setting up complex event handlers
+- Initializing canvas/WebGL contexts
+- Third-party library initialization with multiple elements
+
+**Notes:**
+
+- Callback is NOT called if any ref is null/undefined
+- All refs must be ready for callback to execute
+- For cleanup, use `blox.onUnmount()` separately
 
 ---
 
