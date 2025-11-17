@@ -99,15 +99,22 @@ The `track()` function creates a proxy that lazily tracks only the signals you a
 
 ## 3. Effects - Side Effects with Auto-Tracking
 
-Effects run side effects when their signal dependencies change. They automatically track which signals they access.
+Effects **run immediately** when created and re-run when their signal dependencies change. They automatically track which signals they access.
+
+**Key Behavior:**
+- ✅ Runs immediately (on creation)
+- ✅ Consistent behavior inside and outside `blox` components
+- ✅ Automatic cleanup on component unmount
 
 ```tsx
 import { signal, effect } from "rxblox";
 
 const count = signal(0);
 
+// Effect runs immediately
 effect(() => {
   console.log("Count is:", count());
+  // Logs: "Count is: 0" (immediately)
 
   // Optional: return cleanup function
   return () => {
@@ -116,6 +123,34 @@ effect(() => {
 });
 
 count.set(5); // Logs: "Count is: 5"
+```
+
+**Inside blox components:**
+
+```tsx
+const MyComponent = blox(() => {
+  // Effect runs immediately during component creation
+  effect(() => {
+    console.log("Effect runs now!");
+  });
+  
+  return <div>Content</div>;
+});
+```
+
+**If you need effects to run on mount:**
+
+```tsx
+const MyComponent = blox(() => {
+  blox.onMount(() => {
+    // Effect created here runs on mount
+    effect(() => {
+      console.log("Runs on mount");
+    });
+  });
+  
+  return <div>Content</div>;
+});
 ```
 
 ## 4. Reactive Expressions - `rx()`

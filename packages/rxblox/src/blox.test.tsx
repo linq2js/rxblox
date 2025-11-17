@@ -189,7 +189,7 @@ describe("blox", () => {
       expect(effectFn).toHaveBeenCalled();
     });
 
-    it("should run effects with cleanup on unmount", () => {
+    it("should run effects with cleanup on unmount", async () => {
       const cleanupFn = vi.fn();
       const Component = blox(() => {
         effect(() => {
@@ -199,6 +199,8 @@ describe("blox", () => {
       });
       const { unmount: unmountComponent } = render(<Component />);
       unmountComponent();
+      // Wait for deferred unmount callback
+      await new Promise((resolve) => setTimeout(resolve, 10));
       expect(cleanupFn).toHaveBeenCalled();
     });
 
@@ -495,7 +497,7 @@ describe("blox", () => {
   });
 
   describe("effect cleanup", () => {
-    it("should cleanup effects on unmount", () => {
+    it("should cleanup effects on unmount", async () => {
       const cleanupFn = vi.fn();
       const Component = blox(() => {
         effect(() => {
@@ -505,10 +507,12 @@ describe("blox", () => {
       });
       const { unmount: unmountComponent } = render(<Component />);
       unmountComponent();
+      // Wait for deferred unmount callback
+      await new Promise((resolve) => setTimeout(resolve, 10));
       expect(cleanupFn).toHaveBeenCalled();
     });
 
-    it("should cleanup effects when component unmounts", () => {
+    it("should cleanup effects when component unmounts", async () => {
       const cleanupFn = vi.fn();
       const Component = blox<{ value: number }>((props) => {
         effect(() => {
@@ -518,6 +522,8 @@ describe("blox", () => {
       });
       const { unmount: unmountComponent } = render(<Component value={1} />);
       unmountComponent();
+      // Wait for deferred unmount callback
+      await new Promise((resolve) => setTimeout(resolve, 10));
       expect(cleanupFn).toHaveBeenCalled();
     });
   });
@@ -549,7 +555,7 @@ describe("blox", () => {
       expect(container.textContent).toBe("0");
     });
 
-    it("should handle effects correctly in Strict Mode", () => {
+    it("should handle effects correctly in Strict Mode", async () => {
       const effectSpy = vi.fn();
       const cleanupSpy = vi.fn();
 
@@ -564,17 +570,22 @@ describe("blox", () => {
         return <div>{rx(count)}</div>;
       });
 
-      render(
+      const { unmount } = render(
         <React.StrictMode>
           <Component />
         </React.StrictMode>
       );
 
-      // In Strict Mode: effect runs, cleanup runs, effect runs again
+      // Effects run immediately during builder execution
+      // In Strict Mode, React double-invokes the builder, so effect runs twice
       expect(effectSpy).toHaveBeenCalled();
-      expect(cleanupSpy).toHaveBeenCalled();
-      // Effect should have run at least twice (initial + re-run after cleanup)
       expect(effectSpy.mock.calls.length).toBeGreaterThanOrEqual(2);
+
+      unmount();
+      // Wait for deferred unmount callback
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      // Cleanup should have been called for each effect invocation
+      expect(cleanupSpy).toHaveBeenCalled();
     });
 
     it("should maintain signal state despite double-invocation", () => {

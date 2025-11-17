@@ -13,7 +13,6 @@ import {
   useState,
 } from "react";
 import { Ref, MutableSignal } from "./types";
-import { effectToken, localEffectDispatcher } from "./effectDispatcher";
 import { signal } from "./signal";
 import { providerToken, useProviderResolver } from "./provider";
 import { useRerender } from "./useRerender";
@@ -214,17 +213,6 @@ export function blox<TProps extends object, TRef>(
     });
 
     /**
-     * Effect dispatcher that collects effects created during builder.
-     *
-     * Unlike the default dispatcher (which runs effects immediately),
-     * this dispatcher collects effects and runs them in useLayoutEffect.
-     * This allows effects to be properly tracked and cleaned up.
-     *
-     * Created once per component instance and reused across builders.
-     */
-    const [effectDispatcher] = useState(() => localEffectDispatcher());
-
-    /**
      * Proxy object that wraps props to track signal dependencies.
      *
      * When props are accessed (e.g., `props.count`), the proxy:
@@ -296,12 +284,12 @@ export function blox<TProps extends object, TRef>(
     /**
      * Builder result computed once and stored in state.
      *
-     * The builder function is executed within the effect dispatcher context,
-     * which collects all effects created during builder. These effects are
-     * then run in useLayoutEffect, allowing them to track signal dependencies.
+     * The builder function is executed with disposable and event dispatcher contexts,
+     * which allows effects created during builder to run immediately (consistent with
+     * global effects) while still tracking cleanup via the disposable context.
      *
      * The result is stored in useState so it's only computed once per component
-     * instance. Effects handle reactivity, not the builder result itself.
+     * instance. Effects run immediately and handle reactivity automatically.
      */
     const [result] = useState(() => {
       // Apply dispatchers to the builder function
@@ -311,7 +299,6 @@ export function blox<TProps extends object, TRef>(
           withDispatchers(
             [
               providerToken(providerResolver),
-              effectToken(effectDispatcher),
               eventToken(eventDispatcher.emitters),
               disposableToken(eventDispatcher.emitters.unmount),
               // no tracking when builder is called
@@ -334,32 +321,22 @@ export function blox<TProps extends object, TRef>(
     });
 
     /**
-     * Runs collected effects and sets up signal subscriptions.
+     * Emits mount event and sets up unmount cleanup.
      *
-     * This effect:
-     * 1. Runs all effects that were collected during builder
-     * 2. Effects subscribe to signals they accessed (including prop signals)
-     * 3. Returns a cleanup function that unsubscribes from all signals
-     *
-     * Re-runs when dispatcher changes (shouldn't happen) or when
-     * the component unmounts (for cleanup).
+     * Effects now run immediately during builder execution (consistent with
+     * global effects). This useLayoutEffect only handles:
+     * 1. Emitting the mount event
+     * 2. Cancelling pending rerenders on unmount
      */
     useLayoutEffect(() => {
-      // Run all collected effects, which will:
-      // - Execute effect functions
-      // - Track signals accessed during execution
-      // - Subscribe to signal changes
-      const cleanup = effectDispatcher.run();
-
-      // Emit mount event after effects are set up
+      // Emit mount event
       eventDispatcher.emitMount();
 
       return () => {
         // Cancel any pending debounced rerender to prevent updates after unmount
         rerender.cancel();
-        cleanup();
       };
-    }, [effectDispatcher, rerender, eventDispatcher]);
+    }, [rerender, eventDispatcher]);
 
     /**
      * Exposes the ref.current value via the forwarded ref.

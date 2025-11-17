@@ -14,16 +14,34 @@ export type EffectContext = {
  * Creates a reactive effect that tracks signals and re-runs when dependencies change.
  *
  * An effect:
+ * - **Runs immediately** when created (consistent behavior inside and outside blox)
  * - Automatically tracks signals accessed during execution
  * - Re-runs whenever any tracked signal changes
  * - Can return a cleanup function that runs before the next execution
- * - Is registered with the current effect dispatcher (default runs immediately)
- * - Returns a cleanup function from `run()` that stops the effect
+ * - Cleanup is automatically called on component unmount (when created inside blox)
  *
- * Effects are useful for:
- * - Side effects (logging, API calls, DOM manipulation)
- * - Synchronizing state between different parts of the application
- * - Cleanup operations (unsubscribing from external services)
+ * **Consistency:**
+ * - Global effects (outside blox): Run immediately ✅
+ * - Effects inside blox: Also run immediately ✅
+ * - No delayed execution, no confusion
+ *
+ * **When to use:**
+ * - Side effects (logging, analytics, localStorage sync)
+ * - External system synchronization (WebSocket, subscriptions)
+ * - Multi-signal coordination
+ *
+ * **If you need effects to run on mount instead:**
+ * ```ts
+ * const MyComponent = blox(() => {
+ *   blox.onMount(() => {
+ *     effect(() => {
+ *       // This effect runs on mount and cleans up on unmount
+ *       console.log('Mounted');
+ *     });
+ *   });
+ *   return <div>Content</div>;
+ * });
+ * ```
  *
  * @param fn - Function to execute. Can return a cleanup function that will be
  *             called before the next execution or when the effect cleanup is called.
@@ -33,22 +51,33 @@ export type EffectContext = {
  * ```ts
  * const count = signal(0);
  *
- * // Effect that logs whenever count changes
- * const logEffect = effect(() => {
+ * // Effect runs immediately and whenever count changes
+ * effect(() => {
  *   console.log('Count is:', count());
  * });
- * // Effect runs immediately (default dispatcher)
+ * // Logs: "Count is: 0" (immediately)
  *
  * count.set(1); // Logs: "Count is: 1"
  *
- * // Stop the effect
- * const cleanup = logEffect.run(); // Re-runs the effect
- * cleanup(); // Stops tracking and cleans up
- *
  * // Effect with cleanup
- * const subscriptionEffect = effect(() => {
- *   const subscription = subscribeToService();
- *   return () => subscription.unsubscribe(); // Cleanup function
+ * effect(() => {
+ *   const ws = new WebSocket(url());
+ *   return () => ws.close(); // Cleanup function
+ * });
+ * ```
+ *
+ * @example
+ * ```tsx
+ * // Inside blox - runs immediately, cleans up on unmount
+ * const MyComponent = blox(() => {
+ *   const count = signal(0);
+ *
+ *   effect(() => {
+ *     console.log('Effect runs immediately:', count());
+ *     return () => console.log('Cleanup on unmount or re-run');
+ *   });
+ *
+ *   return <div>{count()}</div>;
  * });
  * ```
  */

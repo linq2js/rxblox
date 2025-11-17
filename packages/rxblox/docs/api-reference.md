@@ -248,18 +248,64 @@ const logState = () => {
 
 ## `effect(fn)`
 
-Creates a reactive effect that runs when dependencies change.
+Creates a reactive effect that **runs immediately** and re-runs when dependencies change.
+
+**Consistent Behavior:**
+- ✅ Global effects (outside blox): Run immediately
+- ✅ Effects inside blox: Also run immediately
+- No delayed execution, predictable behavior
+
+**When to use:**
+- Side effects (logging, analytics, localStorage sync)
+- External system synchronization (WebSocket, subscriptions)  
+- Multi-signal coordination
 
 ```tsx
-const cleanup = effect(() => {
-  console.log("Count:", count());
+const count = signal(0);
 
+// Effect runs immediately and on signal changes
+effect(() => {
+  console.log("Count:", count());
+  // Logs: "Count: 0" (immediately)
+  
   // Optional cleanup
   return () => console.log("Cleanup");
 });
 
-// Manually run effect
-cleanup.run();
+count.set(1); // Logs: "Count: 1"
+```
+
+**Inside blox components:**
+
+```tsx
+const MyComponent = blox(() => {
+  const count = signal(0);
+  
+  // Runs immediately during component creation
+  effect(() => {
+    console.log("Effect runs now:", count());
+    return () => console.log("Cleanup on unmount or re-run");
+  });
+  
+  return <div>{count()}</div>;
+});
+```
+
+**If you need effects to run on mount instead:**
+
+```tsx
+const MyComponent = blox(() => {
+  const count = signal(0);
+  
+  blox.onMount(() => {
+    // Effect created here runs on mount and cleans up on unmount
+    effect(() => {
+      console.log("Runs on mount:", count());
+    });
+  });
+  
+  return <div>{count()}</div>;
+});
 ```
 
 **Returns:** Effect object with `run()` method
