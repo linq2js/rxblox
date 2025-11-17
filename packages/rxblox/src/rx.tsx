@@ -6,9 +6,8 @@ import {
   createElement,
   memo,
   useLayoutEffect,
-  useMemo,
   ReactElement,
-  useRef,
+  useState,
 } from "react";
 import { trackingDispatcher, trackingToken } from "./trackingDispatcher";
 import { emitter } from "./emitter";
@@ -17,6 +16,7 @@ import { Signal } from "./types";
 import { isSignal } from "./signal";
 import { syncOnly } from "./utils/syncOnly";
 import { getContextType, withDispatchers } from "./dispatcher";
+import { isDiff } from "./isDiff";
 
 /**
  * Reactive component that automatically re-renders when its signal dependencies change.
@@ -35,91 +35,113 @@ export const Reactive = memo((props: { exp: () => unknown }) => {
   const rerender = useRerender<{
     error?: unknown;
   }>();
-  const resultEvaluated = useRef(false);
   // Signal dispatcher is stable across renders - created once and reused
   // We use useMemo instead of useState to pass required parameters
-  const dispatcher = useMemo(() => {
-    return trackingDispatcher();
-  }, []);
+  const [ref] = useState(() => {
+    const onCleanup = emitter();
+    const dispatcher = trackingDispatcher();
+    // one this token changed, re-subscribe to all subscribables
+    const subscribeToken = { current: {} };
+    const recompute = () => {
+      if (rerender.rendering()) {
+        return;
+      }
+
+      try {
+        const { value: nextValue, dependencyChanged } = ref.getValue();
+
+        if (
+          dependencyChanged ||
+          !ref.result ||
+          ref.result.value !== nextValue
+        ) {
+          ref.result = { value: nextValue };
+          rerender({});
+        }
+      } catch (ex) {
+        onCleanup.emitAndClear();
+        dispatcher.clear();
+        rerender.immediate({ error: ex });
+      }
+    };
+
+    return {
+      result: undefined as { value: unknown } | undefined,
+      subscribeToken,
+      dispatcher,
+      subscribe() {
+        // clear previous subscriptions
+        onCleanup.emitAndClear();
+
+        try {
+          // Subscribe to all dependencies that were accessed during expression evaluation
+          for (const subscribable of dispatcher.subscribables) {
+            onCleanup.on(subscribable.on(recompute));
+          }
+        } catch (ex) {
+          // If subscription fails, clean up and set error state
+          // Errors should be handled immediately, not debounced
+          onCleanup.emitAndClear();
+          rerender.immediate({ error: ex });
+          return;
+        }
+
+        // Cleanup function: unsubscribe from all signals when effect re-runs or component unmounts
+        return () => {
+          // Cancel any pending debounced rerender to prevent updates after unmount
+          rerender.cancel();
+          onCleanup.emitAndClear();
+        };
+      },
+      getValue() {
+        // take snapshot of current dependencies
+        const prevSubscribables = new Set(dispatcher.subscribables);
+        // clear previous dependencies
+        dispatcher.clear();
+
+        const value = syncOnly(
+          () =>
+            withDispatchers([trackingToken(dispatcher)], props.exp, {
+              contextType: "rx",
+            }),
+          {
+            message:
+              "rx() expression cannot return a promise. " +
+              "React components must render synchronously. " +
+              "If you need async data, use signal.async() or handle async operations in effects.",
+            context: "rx()",
+            mode: "error",
+          }
+        );
+
+        let dependencyChanged = false;
+        // check if dependencies changed
+        const nextSubscribables = new Set(dispatcher.subscribables);
+        if (isDiff(prevSubscribables, nextSubscribables)) {
+          dependencyChanged = true;
+          subscribeToken.current = {};
+        }
+        return { value, dependencyChanged };
+      },
+    };
+  });
 
   // Re-throw errors so ErrorBoundary can catch them
   if (rerender.data?.error) {
     throw rerender.data.error;
   }
 
-  /**
-   * Subscribes to signal changes and sets up cleanup.
-   * This effect:
-   * 1. Creates an emitter to manage cleanup functions
-   * 2. Subscribes to all currently tracked signals
-   * 3. When any signal changes, triggers a re-render via rerender()
-   * 4. Cleans up subscriptions when dependencies change or component unmounts
-   *
-   * Re-runs when:
-   * - dispatcher changes (shouldn't happen)
-   * - recomputeToken changes (when signal dependencies change)
-   */
+  // initialize the value
+  if (!ref.result) {
+    const { value } = ref.getValue();
+    ref.result = { value };
+  }
+
   useLayoutEffect(() => {
-    const onCleanup = emitter();
-    const recompute = () => {
-      if (!rerender.rendering() || resultEvaluated.current) {
-        rerender({});
-      }
-    };
-    try {
-      // Subscribe to all dependencies that were accessed during expression evaluation
-      for (const subscribable of dispatcher.subscribables) {
-        onCleanup.on(subscribable.on(recompute));
-      }
-    } catch (ex) {
-      // If subscription fails, clean up and set error state
-      // Errors should be handled immediately, not debounced
-      onCleanup.emitAndClear(undefined);
-      rerender.immediate({ error: ex });
-      return;
-    }
+    return ref.subscribe();
+  }, [ref.subscribeToken.current]); // subscribe again once subscribables change
 
-    // Cleanup function: unsubscribe from all signals when effect re-runs or component unmounts
-    return () => {
-      // Cancel any pending debounced rerender to prevent updates after unmount
-      rerender.cancel();
-      onCleanup.emitAndClear(undefined);
-    };
-  });
-
-  resultEvaluated.current = false;
-
-  /**
-   * Computes the expression result and tracks signal dependencies.
-   * This runs during render and:
-   * 1. Saves the previous set of signals
-   * 2. Clears the dispatcher to track new signals
-   * 3. Executes the expression (which may access signals)
-   * 4. Compares old and new signal sets
-   * 5. Updates recomputeToken if signals changed (to trigger effect re-run)
-   *
-   * The result is memoized based on dispatcher, props.exp, and rerender.data
-   * to avoid unnecessary recomputations.
-   */
-  const result = useMemo(() => {
-    dispatcher.clear();
-    return syncOnly(
-      () =>
-        withDispatchers([trackingToken(dispatcher)], props.exp, {
-          contextType: "rx",
-        }),
-      {
-        message:
-          "rx() expression cannot return a promise. " +
-          "React components must render synchronously. " +
-          "If you need async data, use signal.async() or handle async operations in effects.",
-        context: "rx()",
-        mode: "error",
-      }
-    );
-  }, [dispatcher, props.exp, rerender.data]);
-
-  resultEvaluated.current = true;
+  const result = ref.result?.value;
 
   // Return the computed result, or null if result is null/undefined
   // Functions are not valid React children, so convert them to null
@@ -130,6 +152,7 @@ export const Reactive = memo((props: { exp: () => unknown }) => {
   // Cast to ReactNode to satisfy TypeScript
   return (result ?? null) as unknown as ReactNode;
 });
+
 Reactive.displayName = "rx";
 
 /**

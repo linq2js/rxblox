@@ -1,7 +1,7 @@
 import { blox, rx } from "rxblox";
 import { todoStore } from "../store/todoStore";
 
-const allFilter = rx(() => (
+const allFilterPart = rx(() => (
   <a
     className={todoStore.filter() === "all" ? "selected" : ""}
     onClick={todoStore.setFilterAll}
@@ -11,7 +11,7 @@ const allFilter = rx(() => (
   </a>
 ));
 
-const activeFilter = rx(() => (
+const activeFilterPart = rx(() => (
   <a
     className={todoStore.filter() === "active" ? "selected" : ""}
     onClick={todoStore.setFilterActive}
@@ -20,7 +20,7 @@ const activeFilter = rx(() => (
     Active
   </a>
 ));
-const completedFilter = rx(() => (
+const completedFilterPart = rx(() => (
   <a
     className={todoStore.filter() === "completed" ? "selected" : ""}
     onClick={todoStore.setFilterCompleted}
@@ -29,7 +29,7 @@ const completedFilter = rx(() => (
     Completed
   </a>
 ));
-const clearCompletedButton = rx(
+const clearCompletedButtonPart = rx(
   () =>
     todoStore.completed().length > 0 && (
       <button className="clear-completed" onClick={todoStore.clearCompleted}>
@@ -50,11 +50,11 @@ export const Footer = blox(() => {
         ))}
       </span>
       <ul className="filters">
-        <li>{allFilter}</li>
-        <li>{activeFilter}</li>
-        <li>{completedFilter}</li>
+        <li>{allFilterPart}</li>
+        <li>{activeFilterPart}</li>
+        <li>{completedFilterPart}</li>
       </ul>
-      {clearCompletedButton}
+      {clearCompletedButtonPart}
     </footer>
   );
 });

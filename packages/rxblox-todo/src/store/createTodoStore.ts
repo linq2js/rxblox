@@ -56,17 +56,17 @@ export function createTodoStore() {
       get() {
         const stored = localStorage.getItem(key);
         if (stored) {
-          console.log("todos loaded");
+          console.log(`${key} loaded`);
           return {
             value: JSON.parse(stored),
           };
         }
-        console.log("no todos found");
+        console.log(`${key} data not found`);
         return null;
       },
       set: debounce((value) => {
         localStorage.setItem(key, JSON.stringify(value));
-        console.log("todos saved");
+        console.log(`${key} saved`);
       }, 300),
     };
   };
