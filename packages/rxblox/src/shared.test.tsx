@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "@testing-library/react";
-import React, { act } from "react";
+import { act } from "react";
 import { shared } from "./shared";
 import { signal } from "./signal";
 import { blox } from "./blox";
@@ -174,6 +174,7 @@ describe("shared", () => {
         });
 
         // Same instance should still exist
+        createLogic(1);
         expect(callCount).toBe(1); // No new instance created
       });
 
@@ -242,6 +243,7 @@ describe("shared", () => {
         await Promise.resolve();
 
         // New instance should be created
+        createLogic(1);
         expect(callCount).toBe(2); // New instance created
       });
 
@@ -274,6 +276,7 @@ describe("shared", () => {
         await Promise.resolve(); // Wait for cleanup
 
         // Instance should still exist
+        createLogic(1);
         expect(callCount).toBe(1); // Same instance
 
         // Unmount second component - refs should reach 0
@@ -283,6 +286,7 @@ describe("shared", () => {
         await Promise.resolve(); // Wait for cleanup
 
         // Now instance should be GC'd
+        createLogic(1);
         expect(callCount).toBe(2); // New instance created
       });
 
@@ -321,6 +325,7 @@ describe("shared", () => {
         await Promise.resolve(); // Wait for cleanup
 
         // New instance created
+        createLogic(1);
         expect(callCount).toBe(2);
       });
     });
@@ -365,6 +370,7 @@ describe("shared", () => {
         await Promise.resolve(); // Wait for cleanup
 
         // New instance should be created
+        createLogic(1);
         expect(callCount).toBe(2);
       });
     });
