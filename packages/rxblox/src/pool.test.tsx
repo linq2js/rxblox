@@ -411,7 +411,7 @@ describe("pool", () => {
         return { value };
       });
 
-      const [logic, dispose] = createLogic.once(1);
+      const [, dispose] = createLogic.once(1);
       expect(cleanup).not.toHaveBeenCalled();
 
       dispose();
@@ -446,7 +446,7 @@ describe("pool", () => {
     });
 
     it("should cleanup signals when disposed", async () => {
-      const createLogic = pool((id: number) => {
+      const createLogic = pool((_id: number) => {
         const count = signal(0);
         let effectRuns = 0;
         effect(() => {
