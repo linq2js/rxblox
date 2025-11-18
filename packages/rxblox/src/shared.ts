@@ -2,6 +2,7 @@ import { getDispatcher, withDispatchers, getContextType } from "./dispatcher";
 import { disposableToken } from "./disposableDispatcher";
 import { emitter } from "./emitter";
 import { shallowEquals } from "./utils/shallowEquals";
+import { objectKeyedCollection } from "./utils/objectKeyedCollection";
 
 /**
  * Options for configuring shared instance behavior.
@@ -25,10 +26,9 @@ export type SharedOptions<K> = {
 };
 
 /**
- * Internal entry structure with cleanup functions.
+ * Internal entry structure with cleanup functions and metadata.
  */
-type InternalEntry<K, R extends object> = {
-  key: K;
+type InternalEntry<R extends object> = {
   result: R;
   proxy: R; // Cached proxy to return same reference
   refs: number;
@@ -198,23 +198,21 @@ export function shared<K, R extends object>(
 
   const { equals = shallowEquals, dispose } = options;
 
-  const cacheArray: Array<InternalEntry<K, R>> = [];
+  const cache = objectKeyedCollection<K, InternalEntry<R>>(equals);
 
   // Schedule GC for entry when refs reach 0
-  const scheduleGC = (entry: InternalEntry<K, R>) => {
+  const scheduleGC = (key: K, entry: InternalEntry<R>) => {
     if (entry.refs > 0) return;
 
     // Immediate GC
-    const index = cacheArray.indexOf(entry);
-    if (index !== -1) {
-      cacheArray.splice(index, 1);
+    if (cache.delete(key)) {
       entry.deleted = true;
       entry.cleanup();
     }
   };
 
   // Helper to create proxy that checks if entry is deleted
-  const createProxy = (entry: InternalEntry<K, R>): R => {
+  const createProxy = (entry: InternalEntry<R>): R => {
     return new Proxy(entry.result, {
       get(target, prop, receiver) {
         if (entry.deleted) {
@@ -245,15 +243,13 @@ export function shared<K, R extends object>(
 
   const sharedFn = (key: K): R => {
     // Find existing entry with equal key
-    const index = cacheArray.findIndex((entry) => equals(entry.key, key));
+    const existingEntry = cache.get(key); // Automatically moves to end (LRU)
 
-    if (index !== -1) {
+    if (existingEntry) {
       // Cache hit
-      const [entry] = cacheArray.splice(index, 1);
-      cacheArray.push(entry); // Move to end (most recently used)
 
       // Determine if we should track refs for this entry
-      const shouldAutoDispose = entry.refs !== -1; // -1 means permanent (never dispose)
+      const shouldAutoDispose = existingEntry.refs !== -1; // -1 means permanent (never dispose)
 
       if (shouldAutoDispose) {
         const contextType = getContextType();
@@ -261,20 +257,20 @@ export function shared<K, R extends object>(
           contextType === "blox" || contextType === "effect";
 
         if (isDisposableContext) {
-          entry.refs++;
+          existingEntry.refs++;
 
           // Register decrement on cleanup
           const outerDisposableApi = getDispatcher(disposableToken);
           outerDisposableApi?.on(() => {
-            entry.refs--;
-            if (entry.refs === 0) {
-              scheduleGC(entry);
+            existingEntry.refs--;
+            if (existingEntry.refs === 0) {
+              scheduleGC(key, existingEntry);
             }
           });
         }
       }
 
-      return entry.proxy; // Return cached proxy
+      return existingEntry.proxy; // Return cached proxy
     }
 
     // Cache miss - create with disposable context
@@ -308,8 +304,7 @@ export function shared<K, R extends object>(
     }
 
     // Create placeholder entry (will update result later)
-    const entry: InternalEntry<K, R> = {
-      key,
+    const entry: InternalEntry<R> = {
       result: undefined as any, // Temporary
       proxy: undefined as any, // Temporary
       refs: initialRefs,
@@ -324,7 +319,7 @@ export function shared<K, R extends object>(
       outerDisposableApi?.on(() => {
         entry.refs--;
         if (entry.refs === 0) {
-          scheduleGC(entry);
+          scheduleGC(key, entry);
         }
       });
     }
@@ -340,8 +335,8 @@ export function shared<K, R extends object>(
     // Create and cache proxy
     entry.proxy = createProxy(entry);
 
-    // Store entry
-    cacheArray.push(entry);
+    // Store entry in cache
+    cache.set(key, entry);
 
     return entry.proxy;
   };

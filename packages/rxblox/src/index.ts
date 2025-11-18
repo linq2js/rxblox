@@ -71,3 +71,7 @@ export { devLog, devWarn, devError, devOnly, devAssert } from "./utils/dev";
 export { syncOnly } from "./utils/syncOnly";
 export type { SyncOnlyOptions } from "./utils/syncOnly";
 export { shallowEquals } from "./utils/shallowEquals";
+export {
+  objectKeyedCollection as createObjectKeyedCollection,
+  type ObjectKeyedCollection,
+} from "./utils/objectKeyedCollection";
