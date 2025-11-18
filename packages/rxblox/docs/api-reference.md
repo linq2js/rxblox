@@ -2768,9 +2768,9 @@ type PoolOptions<K> = {
   equals?: (a: K, b: K) => boolean;
 
   // Disposal strategy for pooled instances
-  // - "auto": Automatically dispose when reference count reaches zero
+  // - "auto": Enable automatic reference counting and GC when refs reach 0
   // - "never": Keep instance forever (never garbage collect)
-  // Default: "auto" in blox/effect scope, "never" in global scope
+  // Default: "never" (instances are permanent by default)
   dispose?: "auto" | "never";
 };
 ```
@@ -2894,25 +2894,29 @@ const task3 = createTask.once(2); // NEW instance, not task2
 
 ### Disposal Strategies
 
-**Default behavior:**
+**Default behavior (no `dispose` option):**
 
 ```tsx
-// Global scope - permanent (never GC)
-const globalConfig = createConfig(); // dispose: "never"
+// By default, instances are permanent and never GC'd
+const createConfig = pool((id: number) => ({ value: signal(id) }));
 
-// Inside blox - auto-disposed
+// Global scope - permanent
+const globalConfig = createConfig(1);
+
+// Inside blox - still permanent (default: never GC)
 const Component = blox(() => {
-  const config = createConfig(); // dispose: "auto"
-  // Disposed when component unmounts
+  const config = createConfig(1); // Same instance as globalConfig
+  return <div>{rx(() => config.value())}</div>;
+  // NOT disposed when component unmounts (default behavior)
 });
 ```
 
-**Force `dispose: "never"` (permanent):**
+**Explicit `dispose: "never"` (same as default, but clear intent):**
 
 ```tsx
 const createPermanent = pool(
   (id: number) => ({ value: signal(id) }),
-  { dispose: "never" }
+  { dispose: "never" }  // Explicit: never GC
 );
 
 const Component = blox(() => {
@@ -2925,24 +2929,33 @@ const { unmount } = render(<Component />);
 unmount(); // Instance is NOT garbage collected
 ```
 
-**Force `dispose: "auto"` (always ref-counted):**
+**Enable `dispose: "auto"` (automatic reference counting):**
 
 ```tsx
 const createAutoDispose = pool(
   (id: number) => ({ value: signal(id) }),
-  { dispose: "auto" }
+  { dispose: "auto" }  // Enable auto-disposal
 );
 
-// Even in global scope, uses ref counting
-const logic = createAutoDispose(1); // refs = 0, not disposed yet
-
-// Use in component to start tracking
+// In blox/effect scope - auto-tracking starts
 const Component = blox(() => {
-  const logic = createAutoDispose(1); // refs++
+  const logic = createAutoDispose(1); // refs = 1
   return <div>{rx(() => logic.value())}</div>;
 });
 
-// When component unmounts, refs reaches 0, triggers GC
+// First mount
+const { unmount: unmount1 } = render(<Component />);
+// refs = 1
+
+// Second mount (same key)
+const { unmount: unmount2 } = render(<Component />);
+// refs = 2, same instance shared
+
+unmount1(); // refs = 1, still alive
+unmount2(); // refs = 0, triggers GC!
+
+// New call creates fresh instance
+const logic = createAutoDispose(1); // refs = 0 (global scope)
 ```
 
 ### Advanced Examples

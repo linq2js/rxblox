@@ -17,10 +17,10 @@ export type PoolOptions<K> = {
   /**
    * Disposal strategy for pooled instances.
    *
-   * - `"auto"`: Automatically dispose when reference count reaches zero
+   * - `"auto"`: Enable automatic reference counting and GC when refs reach 0
    * - `"never"`: Keep instance forever (never garbage collect)
    *
-   * @default "auto" in blox/effect scope, "never" in global scope
+   * @default "never" (instances are permanent by default)
    */
   dispose?: "auto" | "never";
 };
@@ -45,7 +45,7 @@ export type PoolFunction<K, R extends object> = {
    * Get a pooled instance for the given key.
    * Instances are cached and reused based on key equality.
    */
-  (key: K): R;
+  (...args: void extends K ? [] : [key: K]): R;
 
   /**
    * Create a one-off instance that is not pooled.
@@ -70,7 +70,7 @@ export type PoolFunction<K, R extends object> = {
    * dispose(); // Manual cleanup
    * ```
    */
-  once(key: K): [R, () => void];
+  once(...args: void extends K ? [] : [key: K]): [R, () => void];
 };
 
 /**
@@ -82,24 +82,22 @@ export type PoolFunction<K, R extends object> = {
  *
  * For one-off instances that should not be pooled, use the `.once()` method.
  *
- * ## Result Type Constraint
- *
- * The result **must extend `object`** (not primitives). This allows the
- * library to wrap results in a Proxy that throws errors if accessed after
- * the instance is garbage collected.
- *
  * ## Disposal Strategy
  *
- * By default, disposal behavior depends on where the instance is created:
+ * **By default (`dispose` not specified):**
+ * - Instances are permanent and never garbage collected
+ * - This is the safest default - no surprise cleanups
+ * - Pooled instances persist until manually cleared or app closes
  *
- * - **Global scope**: Instances are permanent (never GC)
- * - **Blox/Effect scope**: Automatic reference counting - instances are
- *   garbage collected when all components/effects stop using them
+ * **With `dispose: "auto"`:**
+ * - Automatic reference counting is enabled
+ * - In **blox/effect scope**: Instances are garbage collected when all
+ *   components/effects stop using them (refs reach 0)
+ * - In **global scope**: Instance created with refs=0, GC'd when all refs are released
  *
- * You can override this default behavior with the `dispose` option:
- *
- * - `dispose: "auto"` - Always use reference counting and GC when refs reach 0
- * - `dispose: "never"` - Keep instance forever, even in blox/effect scope
+ * **With `dispose: "never"`:**
+ * - Explicitly keep instances forever (same as default, but explicit)
+ * - Useful when you want to be clear about the intention
  *
  * @param fn - Factory function to create instances (must be synchronous, must return object)
  * @param options - Configuration options
@@ -226,10 +224,10 @@ export type PoolFunction<K, R extends object> = {
  * // oldLogic.value() // Error: Cannot access deleted pooled instance
  * ```
  */
-export function pool<K, R extends object>(
+export function pool<K = void, R extends object = {}>(
   fn: (key: K) => R,
   options: PoolOptions<K> = {}
-): PoolFunction<K, R> {
+): R extends PromiseLike<any> ? never : PoolFunction<K, R> {
   // Validate fn is not async
   if (fn.constructor.name === "AsyncFunction") {
     throw new Error(
@@ -331,28 +329,18 @@ export function pool<K, R extends object>(
     const contextType = getContextType();
     const isDisposableContext =
       contextType === "blox" || contextType === "effect";
-    const isGlobalContext = !contextType;
 
     let shouldAutoDispose = false;
     let initialRefs = 0;
 
-    if (dispose === "never") {
-      // Explicit "never" - permanent instance
-      shouldAutoDispose = false;
-      initialRefs = -1;
-    } else if (dispose === "auto") {
-      // Explicit "auto" - always use ref counting
+    if (dispose === "auto") {
+      // Explicit "auto" - enable ref counting and auto-disposal
       shouldAutoDispose = true;
       initialRefs = isDisposableContext ? 1 : 0;
     } else {
-      // Default behavior based on context
-      if (isGlobalContext) {
-        shouldAutoDispose = false;
-        initialRefs = -1; // Global = never GC
-      } else if (isDisposableContext) {
-        shouldAutoDispose = true;
-        initialRefs = 1; // Start with 1 ref
-      }
+      // Default or explicit "never" - permanent instance
+      shouldAutoDispose = false;
+      initialRefs = -1; // Never GC
     }
 
     // Create placeholder entry (will update result later)
@@ -397,10 +385,10 @@ export function pool<K, R extends object>(
   poolFn.once = (key: K): [R, () => void] => {
     // Create instance without caching
     const cleanup = emitter();
-    const result = withDispatchers([disposableToken(cleanup)], () => fn(key));
+    const result = disposableToken.with(cleanup, () => fn(key));
 
     return [result, () => cleanup.emitAndClear()];
   };
 
-  return poolFn;
+  return poolFn as any;
 }

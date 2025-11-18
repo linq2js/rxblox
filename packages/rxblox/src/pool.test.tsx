@@ -71,18 +71,18 @@ describe("pool", () => {
   });
 
   describe("garbage collection", () => {
-    it("should never GC global instances", () => {
+    it("should never GC instances by default", () => {
       let callCount = 0;
       const createLogic = pool((id: number) => {
         callCount++;
         return { id, callCount };
       });
 
-      // Create in global scope
+      // Create instance (default: never GC)
       const logic1 = createLogic(1);
       expect(callCount).toBe(1);
 
-      // Global instances persist (refs = Infinity)
+      // Instances persist by default (refs = -1)
       const logic2 = createLogic(1);
       expect(logic2.id).toBe(logic1.id);
       expect(callCount).toBe(1); // Same instance
@@ -334,24 +334,7 @@ describe("pool", () => {
     });
 
     describe("default behavior", () => {
-      it("should use 'never' for global scope by default", () => {
-        let callCount = 0;
-        const createLogic = pool((id: number) => {
-          callCount++;
-          return { id, value: signal(id) };
-        });
-
-        // Create in global scope
-        const logic1 = createLogic(1);
-        expect(callCount).toBe(1);
-
-        // Same instance (permanent)
-        const logic2 = createLogic(1);
-        expect(callCount).toBe(1);
-        expect(logic1).toBe(logic2);
-      });
-
-      it("should use 'auto' for blox scope by default", async () => {
+      it("should use 'never' by default (permanent instances)", async () => {
         let callCount = 0;
         const createLogic = pool((id: number) => {
           callCount++;
@@ -366,15 +349,15 @@ describe("pool", () => {
         const { unmount } = render(<Component />);
         expect(callCount).toBe(1);
 
-        // Unmount should trigger GC (default auto in blox)
+        // Unmount should NOT trigger GC (default: never)
         act(() => {
           unmount();
         });
         await Promise.resolve(); // Wait for cleanup
 
-        // New instance should be created
+        // Same instance should be returned (not GC'd)
         createLogic(1);
-        expect(callCount).toBe(2);
+        expect(callCount).toBe(1); // Still 1 - same instance
       });
     });
   });
