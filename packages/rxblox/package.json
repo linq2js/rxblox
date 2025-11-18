@@ -1,6 +1,6 @@
 {
   "name": "rxblox",
-  "version": "1.29.0",
+  "version": "1.30.0",
   "description": "A reactive state management library",
   "type": "module",
   "main": "./dist/rxblox.umd.js",
