@@ -181,6 +181,78 @@ const UserCard = blox(() => {
 
 **Change `userId`? Refetches. Previous request? Cancelled. All automatic.**
 
+### Even Better: Automatic `wait()` with `rx()`
+
+Want it even simpler? Use `rx()` with an array of awaitables:
+
+```tsx
+const user = signal.async(() => fetchUser(userId));
+const posts = signal.async(() => fetchPosts(userId));
+
+const UserProfile = blox(() => {
+  return (
+    <Suspense fallback={<Spinner />}>
+      {rx([user, posts], (userData, postsData) => (
+        <div>
+          <h1>{userData.name}</h1>
+          <PostList posts={postsData} />
+        </div>
+      ))}
+    </Suspense>
+  );
+});
+```
+
+**What just happened:**
+
+- ✅ **Automatic `wait()`** - No manual status checking
+- ✅ **Automatic Suspense** - Loading states handled by React
+- ✅ **Type-safe unwrapping** - `Loadable<User>` → `User`
+- ✅ **Works with promises** - Pass promises directly, no signals needed
+- ✅ **Mix sync & async** - Combine regular signals with async ones
+
+```tsx
+// Mix and match!
+const syncCount = signal(0);
+const asyncUser = signal.async(() => fetchUser());
+const directPromise = fetchSettings();
+
+{rx([syncCount, asyncUser, directPromise], (count, user, settings) => (
+  <Dashboard count={count} user={user} settings={settings} />
+))}
+```
+
+**This is React Suspense + rxblox reactivity combined.**
+
+#### Named Parameters for Better Readability
+
+For components with many dependencies, use object shape:
+
+```tsx
+const user = signal.async(() => fetchUser());
+const posts = signal.async(() => fetchPosts());
+const settings = signal({ theme: 'dark' });
+const notifications = signal(5);
+
+{rx(
+  { user, posts, settings, notifications },
+  ({ user, posts, settings, notifications }) => (
+    <Dashboard 
+      user={user}
+      posts={posts}
+      theme={settings.theme}
+      unread={notifications}
+    />
+  )
+)}
+```
+
+**Benefits:**
+- ✅ Self-documenting code
+- ✅ Order doesn't matter
+- ✅ Easy to add/remove dependencies
+- ✅ Perfect for 4+ dependencies
+
 ---
 
 ## "OK, I'm Listening..."

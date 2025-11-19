@@ -17,6 +17,9 @@ import { isSignal } from "./signal";
 import { syncOnly } from "./utils/syncOnly";
 import { getContextType, withDispatchers } from "./dispatcher";
 import { isDiff } from "./isDiff";
+import { Loadable, isLoadable } from "./loadable";
+import { wait } from "./wait";
+import { isPromiseLike } from "./isPromiseLike";
 
 /**
  * Reactive component that automatically re-renders when its signal dependencies change.
@@ -36,8 +39,16 @@ export const Reactive = memo((props: { exp: () => unknown }) => {
     error?: unknown;
   }>();
 
-  // Create stable ref object containing dispatcher, subscription state, and utility functions
-  // Using useState ensures this is created once and persists across renders
+  /**
+   * Create stable ref object containing:
+   * - `result`: Cached expression result
+   * - `subscribeToken`: Token that changes when dependencies change (triggers re-subscription)
+   * - `dispatcher`: Tracks which signals are accessed during expression evaluation
+   * - `subscribe()`: Sets up subscriptions to all tracked signals
+   * - `getValue()`: Evaluates expression and detects dependency changes
+   *
+   * Using useState ensures this is created once and persists across renders.
+   */
   const [ref] = useState(() => {
     const onCleanup = emitter();
     const dispatcher = trackingDispatcher();
@@ -113,8 +124,16 @@ export const Reactive = memo((props: { exp: () => unknown }) => {
         // Clear dispatcher to track new dependencies during evaluation
         dispatcher.clear();
 
-        // Evaluate the expression with tracking enabled
-        // syncOnly ensures the expression is synchronous (no promises/async)
+        /**
+         * Evaluate the expression with tracking enabled.
+         *
+         * syncOnly() ensures the expression is synchronous - it will throw if:
+         * - The expression returns a Promise (async function)
+         * - The expression returns any PromiseLike value
+         *
+         * This is critical because React components must render synchronously.
+         * Use signal.async() or handle async operations in effects instead.
+         */
         const value = syncOnly(
           () =>
             withDispatchers([trackingToken(dispatcher)], props.exp, {
@@ -176,6 +195,16 @@ export const Reactive = memo((props: { exp: () => unknown }) => {
 
 Reactive.displayName = "rx";
 
+export type AwaitableOrSignal = Signal<any> | PromiseLike<any> | Loadable<any>;
+
+export type AwaitedSignalValue<T> = T extends Signal<infer TValue>
+  ? TValue extends Loadable<any>
+    ? Awaited<TValue["promise"]>
+    : Awaited<TValue>
+  : T extends Loadable<any>
+  ? Awaited<T["promise"]>
+  : Awaited<T>;
+
 /**
  * Creates a reactive component with auto-reactive props.
  *
@@ -220,51 +249,154 @@ export function rx<
 ): ReactNode;
 
 /**
- * Creates a reactive expression with explicit signal dependencies.
+ * Creates a reactive expression with named async dependencies (object shape).
  *
- * This overload allows you to specify which signals to track explicitly,
+ * This overload accepts an object/record of awaitables and provides named parameters
+ * to the render function. This is especially useful for components with many dependencies.
+ *
+ * @param shape - Object mapping names to awaitables (signals, promises, loadables)
+ * @param fn - Function that receives an object with unwrapped named values
+ * @returns A ReactNode that renders the function result and updates when dependencies change
+ *
+ * @example Named dependencies for better readability
+ * ```tsx
+ * const user = signal.async(() => fetchUser());
+ * const posts = signal.async(() => fetchPosts());
+ * const settings = signal({ theme: 'dark' });
+ *
+ * {rx({ user, posts, settings }, ({ user, posts, settings }) => (
+ *   <Dashboard
+ *     user={user}
+ *     posts={posts}
+ *     theme={settings.theme}
+ *   />
+ * ))}
+ * ```
+ *
+ * @example Mix sync and async with named parameters
+ * ```tsx
+ * {rx(
+ *   {
+ *     count: signal(0),
+ *     asyncUser: signal.async(() => fetchUser()),
+ *     directPromise: fetchSettings(),
+ *     loadable: loadable("success", config)
+ *   },
+ *   ({ count, asyncUser, directPromise, loadable }) => (
+ *     <div>All values are unwrapped and named!</div>
+ *   )
+ * )}
+ * ```
+ */
+export function rx<const TShape extends Record<string, AwaitableOrSignal>>(
+  shape: TShape,
+  fn: (values: {
+    [K in keyof TShape]: TShape[K] extends AwaitableOrSignal
+      ? AwaitedSignalValue<TShape[K]>
+      : never;
+  }) => ReactNode
+): ReactElement;
+
+/**
+ * Creates a reactive expression with explicit async dependencies (array).
+ *
+ * This overload allows you to specify which awaitables to track explicitly,
  * and receive their unwrapped values as function parameters. This provides:
  * - Better type inference
  * - Explicit dependency list (similar to React's dependency arrays)
- * - Potential performance optimization (only tracks listed signals)
+ * - Automatic handling of async values (promises, loadables, async signals)
+ * - Seamless integration with React Suspense and ErrorBoundary
  *
- * @param signals - Array of signals to track. Can include undefined/null/false for conditional signals.
- * @param fn - Function that receives unwrapped signal values as arguments
- * @returns A ReactNode that renders the function result and updates when signals change
+ * **Supported Awaitable Types:**
+ * - `Signal<T>` - Regular reactive signals
+ * - `Signal<Loadable<T>>` - Async signals (from `signal.async()`)
+ * - `Signal<PromiseLike<T>>` - Signals containing promises
+ * - `PromiseLike<T>` - Direct promises
+ * - `Loadable<T>` - Direct loadable values
+ * - `undefined | null | false` - Optional dependencies
  *
- * @example
+ * **Automatic Unwrapping:**
+ * All async values are automatically unwrapped using the `wait()` API:
+ * - Loading state → Throws promise (triggers React Suspense)
+ * - Error state → Throws error (triggers ErrorBoundary)
+ * - Success state → Returns unwrapped value `T`
+ *
+ * @param awaitables - Array of awaitables to track (signals, promises, loadables)
+ * @param fn - Function that receives unwrapped values as arguments
+ * @returns A ReactNode that renders the function result and updates when dependencies change
+ *
+ * @example Basic usage with signals
  * ```tsx
  * const count = signal(0);
  * const multiplier = signal(2);
  *
- * // Explicit dependencies - count and multiplier
  * {rx([count, multiplier], (c, m) => (
  *   <div>{c} × {m} = {c * m}</div>
  * ))}
+ * ```
  *
- * // With optional signals
+ * @example With async signals (automatic Suspense)
+ * ```tsx
+ * const user = signal.async(() => fetchUser(userId));
+ * const posts = signal.async(() => fetchPosts(userId));
+ *
+ * // Automatically waits for both signals and unwraps values
+ * // Suspends while loading, throws if error, renders when success
+ * {rx([user, posts], (userData, postsData) => (
+ *   <div>
+ *     <h1>{userData.name}</h1>
+ *     <PostList posts={postsData} />
+ *   </div>
+ * ))}
+ * ```
+ *
+ * @example With direct promises
+ * ```tsx
+ * const userPromise = fetchUser(userId);
+ * const postsPromise = fetchPosts(userId);
+ *
+ * // Directly pass promises - they will be automatically awaited
+ * {rx([userPromise, postsPromise], (user, posts) => (
+ *   <UserProfile user={user} posts={posts} />
+ * ))}
+ * ```
+ *
+ * @example With loadables
+ * ```tsx
+ * const userLoadable = loadable("success", userData);
+ * const errorLoadable = loadable("error", new Error("Failed"));
+ *
+ * {rx([userLoadable], (user) => (
+ *   <div>{user.name}</div>
+ * ))}
+ * ```
+ *
+ * @example Mixed sync and async
+ * ```tsx
+ * const syncCount = signal(0);
+ * const asyncUser = signal.async(() => fetchUser());
+ * const directPromise = fetchSettings();
+ *
+ * {rx([syncCount, asyncUser, directPromise], (count, user, settings) => (
+ *   <Dashboard count={count} user={user} settings={settings} />
+ * ))}
+ * ```
+ *
+ * @example With optional dependencies
+ * ```tsx
  * const maybeSignal = condition ? signal(5) : undefined;
  * {rx([count, maybeSignal], (c, value) => (
  *   <div>Count: {c}, Value: {value ?? 'N/A'}</div>
  * ))}
  * ```
  */
-export function rx<
-  const TSignals extends readonly (Signal<any> | undefined | null | false)[]
->(
-  signals: TSignals,
+export function rx<const TAwaitables extends readonly AwaitableOrSignal[]>(
+  signals: TAwaitables,
   fn: (
     ...values: {
-      [K in keyof TSignals]: TSignals[K] extends Signal<infer T>
-        ? // Signal type - check if it's required or optional
-          // Check if there's anything besides Signal<T> in the union
-          // If Exclude leaves nothing (never), signal is required → return T
-          // If Exclude leaves something (undefined/null/false), signal is optional → return T | undefined
-          [Exclude<TSignals[K], Signal<T>>] extends [never]
-          ? T
-          : T | undefined
-        : // Non-signal values (undefined, null, false) become undefined at runtime
-          undefined;
+      [K in keyof TAwaitables]: TAwaitables[K] extends AwaitableOrSignal
+        ? AwaitedSignalValue<TAwaitables[K]>
+        : never;
     }
   ) => ReactNode
 ): ReactElement;
@@ -348,32 +480,122 @@ export function rx(...args: any[]): ReactNode {
     );
   }
 
+  /**
+   * Expression function that will be passed to the Reactive component.
+   * The following logic determines which overload was called and constructs
+   * the appropriate expression function.
+   */
   let exp: () => ReactNode;
 
-  // Overload 1: rx([signals], fn)
-  // Explicit dependency list - unwraps signals and passes values to callback
-  if (Array.isArray(args[0])) {
-    const maybeSignals = args[0] as readonly (
+  /**
+   * Unwraps an awaitable value into its resolved form.
+   *
+   * This helper handles multiple types of awaitable values and normalizes them
+   * for use in reactive expressions. It integrates with React Suspense and ErrorBoundary
+   * by throwing promises (loading) or errors (failed) when appropriate.
+   *
+   * **Behavior by type:**
+   * - `undefined | null | false` → Returns `undefined`
+   * - `Signal<T>` → Calls signal and returns value
+   * - `Signal<Loadable<T>>` → Calls signal, then waits for loadable (throws promise/error if needed)
+   * - `Signal<PromiseLike<T>>` → Calls signal, then waits for promise (throws promise/error if needed)
+   * - `PromiseLike<T>` → Waits for promise using wait() (throws promise/error if needed)
+   * - `Loadable<T>` → Waits for loadable using wait() (throws promise/error if needed)
+   * - Other types → Returns as-is
+   *
+   * **Integration with React:**
+   * - Loading state: Throws promise → Caught by React Suspense
+   * - Error state: Throws error → Caught by ErrorBoundary
+   * - Success state: Returns unwrapped value
+   *
+   * @param awaitable - Value to unwrap
+   * @returns Unwrapped value, or throws promise/error for async states
+   */
+  const unwrapAwaitable = (awaitable: any) => {
+    // Handle falsy values (undefined, null, false)
+    if (!awaitable) {
+      return undefined;
+    }
+
+    // Handle signals
+    if (typeof awaitable === "function") {
+      const value = (awaitable as Signal<any>)();
+
+      // If signal value is loadable or promise, use wait() to unwrap
+      // wait() will throw promise (Suspense) or error (ErrorBoundary) as needed
+      if (isLoadable(value) || isPromiseLike(value)) {
+        return wait(awaitable as Signal<any>);
+      }
+
+      return value;
+    }
+
+    // Handle direct promises and loadables
+    // wait() will throw promise (Suspense) or error (ErrorBoundary) as needed
+    if (isLoadable(awaitable) || isPromiseLike(awaitable)) {
+      return wait(awaitable as any);
+    }
+
+    // Unknown type - return as-is
+    return awaitable;
+  };
+
+  /**
+   * Overload Dispatch Logic
+   *
+   * Determines which overload was called based on the arguments pattern
+   * and constructs the appropriate expression function:
+   *
+   * 1. Object + function → rx({ key: awaitable }, (values) => ...)
+   * 2. Array + function → rx([awaitables], (...values) => ...)
+   * 3. Single function → rx(() => ...)
+   * 4. Two args (not array) → rx(Component, props)
+   */
+
+  // Overload 1: rx({ shape }, fn)
+  // Object shape with named dependencies
+  if (
+    args[0] &&
+    !Array.isArray(args[0]) &&
+    typeof args[0] === "object" &&
+    typeof args[1] === "function"
+  ) {
+    const shape = args[0] as Record<string, any>;
+    const fn = args[1] as (values: Record<string, any>) => ReactNode;
+
+    // Build expression that unwraps each awaitable in the shape
+    exp = () => {
+      const unwrappedValues: Record<string, any> = {};
+
+      for (const key in shape) {
+        unwrappedValues[key] = unwrapAwaitable(shape[key]);
+      }
+
+      return fn(unwrappedValues);
+    };
+  }
+  // Overload 2: rx([awaitables], fn)
+  // Explicit dependency list - unwraps signals/promises/loadables and passes values to callback
+  else if (Array.isArray(args[0])) {
+    const awaitables = args[0] as readonly (
       | Signal<any>
+      | PromiseLike<any>
+      | Loadable<any>
       | undefined
       | null
       | false
     )[];
     const fn = args[1] as (...args: any[]) => ReactNode;
 
-    // Build expression that unwraps each signal (or undefined for non-signals)
-    // and passes them as arguments to the callback
-    exp = () =>
-      fn(
-        ...maybeSignals.map((s) => (typeof s === "function" ? s() : undefined))
-      );
+    // Build expression that unwraps each awaitable (or undefined for falsy values)
+    exp = () => fn(...awaitables.map(unwrapAwaitable));
   }
-  // Overload 2: rx(() => ...)
+  // Overload 3: rx(() => ...)
   // Expression-based - automatically tracks accessed signals
   else if (args.length === 1) {
     exp = args[0];
   }
-  // Overload 3: rx(component, props)
+  // Overload 4: rx(component, props)
   // Component-based - auto-unwraps signal props during render
   else {
     if (!args[1]) {
@@ -408,7 +630,14 @@ export function rx(...args: any[]): ReactNode {
     };
   }
 
-  // Create Reactive component with the constructed expression
-  // The Reactive component handles tracking, subscribing, and re-rendering
+  /**
+   * Create and return the Reactive component with the constructed expression.
+   *
+   * The Reactive component will:
+   * - Execute the expression and track all signal dependencies
+   * - Subscribe to tracked signals and re-render on changes
+   * - Handle errors by re-throwing them for ErrorBoundary
+   * - Manage subscription cleanup on unmount or dependency changes
+   */
   return <Reactive exp={exp} />;
 }

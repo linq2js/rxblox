@@ -1,7 +1,7 @@
 // Main entry point for rxblox
 
-import { onMount, onUnmount, onRender } from "./eventDispatcher";
-import { handle, type Handle } from "./handle";
+import { onEvent, onMount, onUnmount, onRender } from "./eventDispatcher";
+import { hook } from "./hook";
 import { asyncSignal, type AsyncSignalContext } from "./asyncSignal";
 import { signal as createSignal } from "./signal";
 import { blox as createBlox } from "./blox";
@@ -13,7 +13,9 @@ import { ref as createRef, ready as readyMultiple } from "./ref";
 import { slot, fill } from "./slot";
 
 export const blox = Object.assign(createBlox, {
-  handle,
+  hook,
+  onEvent,
+  on: onEvent, // Alias for onEvent
   onMount,
   onUnmount,
   onRender,
@@ -34,7 +36,7 @@ export const action = Object.assign(createAction, {
   aborter,
 });
 
-export type { Handle, AsyncSignalContext };
+export type { AsyncSignalContext };
 export type { BloxRef } from "./ref";
 export type { Action, ActionOptions, ActionEvents } from "./action";
 export type { CancellableAction } from "./cancellableAction";
@@ -43,6 +45,7 @@ export { disposable } from "./disposableDispatcher";
 export * from "./types";
 export { effect } from "./effect";
 export { rx } from "./rx";
+export { onEvent } from "./eventDispatcher";
 export { provider } from "./provider";
 export { useTracked } from "./useTracked";
 export type { Tracked } from "./useTracked";

@@ -48,6 +48,31 @@ const unsubscribe = count.on((newValue) => {
 unsubscribe();
 ```
 
+**⚠️ Important: Signals Cannot Hold Promises**
+
+Signals cannot store Promise values directly. This would cause reactivity issues and memory leaks.
+
+```tsx
+// ❌ Don't do this
+const data = signal(fetch('/api/data')); // Error: Promise not allowed!
+const result = signal(async () => { ... }); // Error: Returns Promise!
+
+// ✅ Use signal.async() for async operations
+const data = signal.async(async () => {
+  const response = await fetch('/api/data');
+  return response.json();
+});
+
+// ✅ Or manage loading states manually with loadable
+const data = signal(loadable('loading'));
+fetch('/api/data')
+  .then(res => res.json())
+  .then(result => data.set(loadable('success', result)))
+  .catch(error => data.set(loadable('error', undefined, error)));
+```
+
+See [Async Signals](#7-async-signals---signalasync) and [Loadable States](#9-loadable-states) for async handling.
+
 ## 2. Computed Signals - Derived State
 
 Computed signals automatically track dependencies and recompute when dependencies change.
@@ -376,7 +401,7 @@ const Counter = blox(
 
 ### Using React Hooks with `blox`
 
-Since `blox` components only run their definition phase **once**, you can't use React hooks directly in the definition phase. Use the `blox.handle()` utility to capture hook results:
+Since `blox` components only run their definition phase **once**, you can't use React hooks directly in the definition phase. Use the `blox.hook()` utility to capture hook results:
 
 ```tsx
 import { blox, signal, rx } from "rxblox";
@@ -386,8 +411,8 @@ const Counter = blox<Props>((props) => {
   // 🔵 Definition phase - runs ONCE
   const count = signal(0);
 
-  // ✅ CORRECT: Use blox.handle() to capture React hooks
-  const router = blox.handle(() => {
+  // ✅ CORRECT: Use blox.hook() to capture React hooks
+  const router = blox.hook(() => {
     const history = useHistory();
     const location = useLocation();
     return { history, location };
@@ -419,10 +444,10 @@ const Counter = blox<Props>((props) => {
 
 **Important Notes:**
 
-- **Use `blox.handle()`** - The recommended way to capture React hook results
+- **Use `blox.hook()`** - The recommended way to capture React hook results
 - **Access via `.current`** - Hook results available in `rx()` expressions and event handlers
-- **Undefined in definition phase** - `blox.handle().current` is `undefined` during the definition phase
-- **Runs on every render** - The callback passed to `blox.handle()` executes during React's render phase
+- **Undefined in definition phase** - `blox.hook().current` is `undefined` during the definition phase
+- **Runs on every render** - The callback passed to `blox.hook()` executes during React's render phase
 
 **Alternative: Manual pattern with `blox.onRender()`:**
 

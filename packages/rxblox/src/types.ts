@@ -231,6 +231,8 @@ export type Signal<T> = {
    * ```
    */
   readonly proxy: T extends object | Function ? Readonly<T> : never;
+
+  persistInfo: PersistInfo;
 };
 
 /**

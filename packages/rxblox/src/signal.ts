@@ -11,7 +11,7 @@ import type {
 import type { Tag } from "./tag";
 import { trackingDispatcher, trackingToken } from "./trackingDispatcher";
 import { emitter } from "./emitter";
-import { getDispatcher, getContextType } from "./dispatcher";
+import { getDispatcher, getContextType, withDispatchers } from "./dispatcher";
 import { disposableToken } from "./disposableDispatcher";
 import { isPromiseLike } from "./isPromiseLike";
 import { batchToken } from "./batchDispatcher";
@@ -168,6 +168,8 @@ export type SignalOptions<T = any> = {
   persist?: Persistor<T>;
 };
 
+export type SignalComputeFn<T> = (context: ComputedSignalContext) => T;
+
 /**
  * Creates a reactive signal that holds a value and notifies listeners when it changes.
  *
@@ -182,6 +184,9 @@ export type SignalOptions<T = any> = {
  * - A static value: `signal(42)`
  * - A computed value (function): `signal(() => otherSignal() * 2)`
  * - A computed value with explicit tracking: `signal(({ track }) => { ... })`
+ *
+ * **⚠️ Important: Signals cannot hold Promise values.**
+ * Use `signal.async()` for async operations or manage loading states with `loadable`.
  *
  * **Dependency Tracking for Computed Signals:**
  *
@@ -216,12 +221,16 @@ export type SignalOptions<T = any> = {
  * const obj = signal({ id: 1 }, {
  *   equals: (a, b) => a.id === b.id
  * });
+ *
+ * // ❌ Promises not allowed - use signal.async() instead
+ * // const data = signal(fetch('/api')); // Throws error!
+ * // const result = signal(async () => {...}); // Throws error!
  * ```
  */
 export function signal<T>(
-  value: T | ((context: ComputedSignalContext) => T),
+  value: T | SignalComputeFn<T>,
   options: SignalOptions<NoInfer<T>> = {}
-): MutableSignal<T> & { persistInfo: PersistInfo } {
+): MutableSignal<T> {
   // Prevent signal creation inside rx() or batch() blocks
   const contextType = getContextType();
   if (contextType === "rx") {
@@ -261,11 +270,33 @@ export function signal<T>(
     );
   }
 
+  // Validate that initial value is not a Promise
+  if (typeof value !== "function" && isPromiseLike(value)) {
+    throw new Error(
+      "Signals cannot hold Promise values directly. " +
+        "Promises would cause reactivity issues and memory leaks.\n\n" +
+        "❌ Don't do this:\n" +
+        "  const data = signal(fetchData());  // Promise!\n" +
+        "  const result = signal(async () => { ... });  // Returns Promise!\n\n" +
+        "✅ Instead, use signal.async() for async values:\n" +
+        "  const data = signal.async(async () => {\n" +
+        "    const response = await fetch('/api/data');\n" +
+        "    return response.json();\n" +
+        "  });\n\n" +
+        "✅ Or use loadable with wait():\n" +
+        "  const data = signal(loadable('loading'));\n" +
+        "  fetch('/api/data')\n" +
+        "    .then(res => res.json())\n" +
+        "    .then(result => data.set(loadable('success', result)))\n" +
+        "    .catch(error => data.set(loadable('error', undefined, error)));\n\n" +
+        "See: https://github.com/linq2js/rxblox#async-data"
+    );
+  }
+
   // Cache for the current computed value (for computed signals)
   let current: { value: T } | undefined;
   const onCleanup = emitter<void>();
   const { equals = Object.is, persist, tags } = options;
-  let abortController: AbortController | undefined;
   let hydrate = () => {};
 
   // Persistence state
@@ -284,19 +315,24 @@ export function signal<T>(
    * 5. Caches the result
    */
   const compute = () => {
-    // Clean up previous subscriptions
+    // Clean up previous computation dependencies
     onCleanup.emitAndClear();
-    abortController?.abort();
-    abortController = undefined;
+
+    let computedValue: T;
 
     if (typeof value === "function") {
       // This is a computed signal - track dependencies
-      const dispatcher = trackingDispatcher(recompute, onCleanup);
+      const tracking$ = trackingDispatcher(recompute, onCleanup);
+      let abortController: AbortController | undefined;
       const context: ComputedSignalContext = {
-        track: dispatcher.track,
+        track: tracking$.track,
         get abortSignal() {
           if (!abortController) {
             abortController = new AbortController();
+            onCleanup.on(() => {
+              abortController?.abort();
+              abortController = undefined;
+            });
           }
           return abortController.signal;
         },
@@ -304,16 +340,44 @@ export function signal<T>(
       // Execute the computation function and track which signals it accesses
       // The dispatcher tracks implicit accesses (signal calls)
       // The track() proxy tracks explicit accesses (proxy property access)
-      current = {
-        value: trackingToken.with(dispatcher, () =>
-          (value as (context: ComputedSignalContext) => T)(context)
-        ),
-      };
+      computedValue = withDispatchers(
+        [
+          trackingToken(tracking$),
+          // Allow all reactive things created during the computation to be cleaned up
+          disposableToken(onCleanup),
+        ],
+        () => (value as (context: ComputedSignalContext) => T)(context)
+      );
     } else {
       // Static value - just cache it
-      current = { value };
+      computedValue = value;
     }
-    return current.value;
+
+    // Validate that the value is not a Promise
+    if (isPromiseLike(computedValue)) {
+      throw new Error(
+        "Signals cannot hold Promise values directly. " +
+          "Promises would cause reactivity issues and memory leaks.\n\n" +
+          "❌ Don't do this:\n" +
+          "  const data = signal(fetchData());  // Promise!\n" +
+          "  const result = signal(async () => { ... });  // Returns Promise!\n\n" +
+          "✅ Instead, use signal.async() for async values:\n" +
+          "  const data = signal.async(async () => {\n" +
+          "    const response = await fetch('/api/data');\n" +
+          "    return response.json();\n" +
+          "  });\n\n" +
+          "✅ Or use loadable with wait():\n" +
+          "  const data = signal(loadable('loading'));\n" +
+          "  fetch('/api/data')\n" +
+          "    .then(res => res.json())\n" +
+          "    .then(result => data.set(loadable('success', result)))\n" +
+          "    .catch(error => data.set(loadable('error', undefined, error)));\n\n" +
+          "See: https://github.com/linq2js/rxblox#async-data"
+      );
+    }
+
+    current = { value: computedValue };
+    return computedValue;
   };
 
   // Track whether we have a pending recomputation scheduled
@@ -332,8 +396,8 @@ export function signal<T>(
   const recompute = () => {
     // If we're inside a batch OR there's an active post-batch flush in progress,
     // defer the recomputation to ensure cascading updates are also batched
-    const dispatcher = getDispatcher(batchToken);
-    if (dispatcher || postBatchQueue) {
+    const batch$ = getDispatcher(batchToken);
+    if (batch$ || postBatchQueue) {
       // Only queue one recomputation per signal
       if (!pendingRecompute) {
         pendingRecompute = true;
@@ -398,6 +462,29 @@ export function signal<T>(
       typeof value === "function"
         ? (produce(prevValue, value as (draft: T) => T | void) as T)
         : (value as T);
+
+    // Validate that the new value is not a Promise
+    if (isPromiseLike(nextValue)) {
+      throw new Error(
+        "Signals cannot hold Promise values directly. " +
+          "Promises would cause reactivity issues and memory leaks.\n\n" +
+          "❌ Don't do this:\n" +
+          "  const data = signal(fetchData());  // Promise!\n" +
+          "  const result = signal(async () => { ... });  // Returns Promise!\n\n" +
+          "✅ Instead, use signal.async() for async values:\n" +
+          "  const data = signal.async(async () => {\n" +
+          "    const response = await fetch('/api/data');\n" +
+          "    return response.json();\n" +
+          "  });\n\n" +
+          "✅ Or use loadable with wait():\n" +
+          "  const data = signal(loadable('loading'));\n" +
+          "  fetch('/api/data')\n" +
+          "    .then(res => res.json())\n" +
+          "    .then(result => data.set(loadable('success', result)))\n" +
+          "    .catch(error => data.set(loadable('error', undefined, error)));\n\n" +
+          "See: https://github.com/linq2js/rxblox#async-data"
+      );
+    }
 
     // Only update and notify if the value actually changed
     if (!equals(prevValue, nextValue)) {
@@ -776,7 +863,7 @@ export function signal<T>(
     });
   }
 
-  return s;
+  return s as PromiseLike<any> extends T ? never : MutableSignal<T>;
 }
 
 /**

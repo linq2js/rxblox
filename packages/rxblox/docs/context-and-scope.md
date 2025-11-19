@@ -35,7 +35,7 @@ rxblox uses the following context types (scopes) internally:
 **Restrictions:**
 
 - ❌ **Cannot use** `blox.onMount()` / `blox.onUnmount()` / `blox.onRender()` - Need `blox` scope
-- ❌ **Cannot create** `blox.ref()` / `blox.slot()` / `blox.handle()` - Need `blox` scope
+- ❌ **Cannot create** `blox.ref()` / `blox.slot()` / `blox.hook()` - Need `blox` scope
 - ❌ **Cannot use** `blox.fill()` - Need active slot inside `blox.slot()`
 - ❌ **Cannot use** `withXXX()` (provider consumers) - Need `blox` scope
 
@@ -69,7 +69,7 @@ rxblox uses the following context types (scopes) internally:
 - ❌ **Cannot create** `blox()` components
 - ❌ **Cannot create** `rx()` expressions
 - ❌ **Cannot use** `blox.onMount()` / `blox.onUnmount()` / `blox.onRender()` - Need `blox` scope
-- ❌ **Cannot create** `blox.ref()` / `blox.slot()` / `blox.handle()` - Need `blox` scope
+- ❌ **Cannot create** `blox.ref()` / `blox.slot()` / `blox.hook()` - Need `blox` scope
 - ❌ **Cannot use** `blox.fill()` - Need active slot
 - ❌ **Cannot use** `withXXX()` - Need `blox` scope
 
@@ -176,7 +176,7 @@ rxblox uses the following context types (scopes) internally:
 | `blox.ready()`     | Any                  | None                | -                          | Checks if refs are ready, typically in `onMount()` or `effect()` |
 | `blox.slot()`      | `blox`               | None (keeps `blox`) | All blox APIs              | Executes function, captures `fill()` calls                       |
 | `blox.fill()`      | Inside `blox.slot()` | None                | -                          | Must be inside active slot                                       |
-| `blox.handle()`    | `blox`               | None                | -                          | Sets imperative handle for ref                                   |
+| `blox.hook()`      | `blox`               | None                | -                          | Captures React hooks during render phase                         |
 
 ### Provider APIs
 
@@ -545,7 +545,7 @@ const App = () => (
 | `blox.onRender()`      | ❌     | ✅   | ❌     | ❌     | ❌    | ❌  |
 | `blox.ready()`         | ✅     | ✅   | ✅     | ✅     | ✅    | ✅  |
 | `blox.fill()`          | ❌     | ✅\* | ❌     | ❌     | ❌    | ❌  |
-| `blox.handle()`        | ❌     | ✅   | ❌     | ❌     | ❌    | ❌  |
+| `blox.hook()`          | ❌     | ✅   | ❌     | ❌     | ❌    | ❌  |
 | `withXXX()` (provider) | ❌     | ✅   | ❌     | ❌     | ❌    | ❌  |
 | `onCleanup()`          | ❌     | ❌   | ✅\*\* | ❌     | ❌    | ❌  |
 | Call actions           | ✅     | ✅   | ✅     | ✅     | ✅    | ✅  |

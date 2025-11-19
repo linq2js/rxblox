@@ -4,7 +4,7 @@ import { dispatcherToken } from "./dispatcher";
  * Blox context dispatcher.
  * 
  * This dispatcher marks code as running inside a blox component.
- * Used to validate that certain APIs (like blox.slot, blox.handle, etc.)
+ * Used to validate that certain APIs (like blox.slot, blox.hook, etc.)
  * are only called within blox components.
  */
 export interface BloxDispatcher {

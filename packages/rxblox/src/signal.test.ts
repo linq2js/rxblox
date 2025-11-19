@@ -847,4 +847,67 @@ describe("signal", () => {
       }).not.toThrow();
     });
   });
+
+  describe("Promise validation", () => {
+    it("should throw when creating signal with Promise value", () => {
+      expect(() => {
+        signal(Promise.resolve(42));
+      }).toThrow("Signals cannot hold Promise values directly");
+    });
+
+    it("should throw when computed signal returns Promise", () => {
+      expect(() => {
+        const s = signal(async () => 42);
+        s(); // Trigger computation
+      }).toThrow("Signals cannot hold Promise values directly");
+    });
+
+    it("should throw when setting signal to Promise value", () => {
+      const s = signal(0);
+      expect(() => {
+        s.set(Promise.resolve(42) as any);
+      }).toThrow("Signals cannot hold Promise values directly");
+    });
+
+    it("should throw with helpful error message guiding to signal.async", () => {
+      expect(() => {
+        signal(Promise.resolve(42));
+      }).toThrow(/use signal\.async\(\) for async values/);
+    });
+
+    it("should throw with loadable alternative in error message", () => {
+      expect(() => {
+        signal(Promise.resolve(42));
+      }).toThrow(/Or use loadable with wait\(\)/);
+    });
+
+    it("should throw when computed signal with dependencies returns Promise", () => {
+      const base = signal(10);
+      expect(() => {
+        const s = signal(async () => {
+          const value = base();
+          return value * 2;
+        });
+        s(); // Trigger computation
+      }).toThrow("Signals cannot hold Promise values directly");
+    });
+
+    it("should not throw for non-Promise values", () => {
+      expect(() => {
+        signal(42);
+        signal("hello");
+        signal({ value: 123 });
+        signal([1, 2, 3]);
+        signal(null);
+        signal(undefined);
+      }).not.toThrow();
+    });
+
+    it("should not throw for computed signals returning non-Promise values", () => {
+      expect(() => {
+        const s = signal(() => 42);
+        s(); // Trigger computation
+      }).not.toThrow();
+    });
+  });
 });

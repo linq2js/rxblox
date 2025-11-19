@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
-import React, { act } from "react";
+import React, { act, Suspense } from "react";
 import { rx, Reactive } from "./rx";
 import { signal } from "./signal";
-import { Signal } from "./types";
 import { delay } from "./delay";
+import { loadable, Loadable } from "./loadable";
 
 describe("rx", () => {
   beforeEach(() => {
@@ -742,26 +742,6 @@ describe("rx", () => {
       });
     });
 
-    it("should handle undefined/null/false in signal array", () => {
-      const count = signal(10);
-      const maybeSignal: Signal<number> | undefined = undefined as any;
-
-      render(
-        <div data-testid="result">
-          {rx([count, maybeSignal, false, null], (c, m, f, n) => (
-            <span>
-              c={c}, m={m === undefined ? "undef" : m}, f=
-              {f === undefined ? "undef" : f}, n={n === undefined ? "undef" : n}
-            </span>
-          ))}
-        </div>
-      );
-
-      expect(screen.getByTestId("result")).toHaveTextContent(
-        "c=10, m=undef, f=undef, n=undef"
-      );
-    });
-
     it("should work with empty signal array", () => {
       render(
         <div data-testid="result">
@@ -1422,6 +1402,517 @@ describe("rx", () => {
         });
         render(view);
       }).not.toThrow();
+    });
+  });
+
+  describe("loadable handling with explicit signals", () => {
+    it("should throw promise when signal value is loading (triggers Suspense)", () => {
+      const promise = new Promise<string>((resolve) => {
+        setTimeout(() => resolve("loaded"), 100);
+      });
+      const asyncSignal = signal<Loadable<string>>(
+        loadable("loading", promise)
+      );
+
+      // When a component throws a promise, Suspense catches it
+      // We test this by wrapping in Suspense and checking fallback is shown
+      const FallbackComponent = () => (
+        <div data-testid="fallback">Loading...</div>
+      );
+      const { container } = render(
+        <Suspense fallback={<FallbackComponent />}>
+          {rx([asyncSignal], (value) => (
+            <div data-testid="content">{value}</div>
+          ))}
+        </Suspense>
+      );
+
+      // Should show fallback when promise is thrown
+      expect(container.textContent).toBe("Loading...");
+      expect(screen.getByTestId("fallback")).toBeTruthy();
+    });
+
+    it("should throw error when signal value is error (triggers ErrorBoundary)", () => {
+      const error = new Error("Failed to load");
+      const asyncSignal = signal<Loadable<string>>(loadable("error", error));
+
+      expect(() => {
+        render(rx([asyncSignal], (value) => <div>{value}</div>));
+      }).toThrow("Failed to load");
+    });
+
+    it("should render unwrapped value when signal value is success", () => {
+      const asyncSignal = signal<Loadable<string>>(
+        loadable("success", "Hello from async")
+      );
+
+      const { container } = render(
+        rx([asyncSignal], (value) => <div>{value}</div>)
+      );
+
+      expect(container.textContent).toBe("Hello from async");
+    });
+
+    it("should handle multiple async signals", () => {
+      const signal1 = signal<Loadable<number>>(loadable("success", 10));
+      const signal2 = signal<Loadable<number>>(loadable("success", 20));
+
+      const { container } = render(
+        rx([signal1, signal2], (a, b) => <div>{a + b}</div>)
+      );
+
+      expect(container.textContent).toBe("30");
+    });
+
+    it("should throw promise if any signal is loading", () => {
+      const promise = new Promise<number>((resolve) => {
+        setTimeout(() => resolve(10), 100);
+      });
+      const loadingSignal = signal<Loadable<number>>(
+        loadable("loading", promise)
+      );
+      const successSignal = signal<Loadable<number>>(loadable("success", 20));
+
+      // When any signal is loading, wait() throws promise and Suspense catches it
+      const FallbackComponent = () => (
+        <div data-testid="fallback">Loading...</div>
+      );
+      const { container } = render(
+        <Suspense fallback={<FallbackComponent />}>
+          {rx([loadingSignal, successSignal], (a, b) => (
+            <div data-testid="content">{a + b}</div>
+          ))}
+        </Suspense>
+      );
+
+      // Should show fallback when promise is thrown
+      expect(container.textContent).toBe("Loading...");
+      expect(screen.getByTestId("fallback")).toBeTruthy();
+    });
+
+    it("should throw error if any signal has error", () => {
+      const error = new Error("Signal 1 failed");
+      const errorSignal = signal<Loadable<number>>(loadable("error", error));
+      const successSignal = signal<Loadable<number>>(loadable("success", 20));
+
+      expect(() => {
+        render(rx([errorSignal, successSignal], (a, b) => <div>{a + b}</div>));
+      }).toThrow("Signal 1 failed");
+    });
+
+    it("should handle mixed sync and async signals", () => {
+      const syncSignal = signal(10);
+      const asyncSignal = signal<Loadable<number>>(loadable("success", 20));
+
+      const { container } = render(
+        rx([syncSignal, asyncSignal], (a, b) => <div>{a + b}</div>)
+      );
+
+      expect(container.textContent).toBe("30");
+    });
+
+    it("should re-render when async signal transitions from loading to success", async () => {
+      let resolvePromise: (value: string) => void;
+      const promise = new Promise<string>((resolve) => {
+        resolvePromise = resolve;
+      });
+
+      const asyncSignal = signal<Loadable<string>>(
+        loadable("loading", promise)
+      );
+
+      const FallbackComponent = () => <div>Loading...</div>;
+      const TestComponent = () => (
+        <Suspense fallback={<FallbackComponent />}>
+          {rx([asyncSignal], (value) => (
+            <div data-testid="result">{value}</div>
+          ))}
+        </Suspense>
+      );
+
+      const { container } = render(<TestComponent />);
+
+      // Initially should show fallback
+      expect(container.textContent).toBe("Loading...");
+
+      // Resolve promise and update signal
+      await act(async () => {
+        resolvePromise!("Success!");
+        await promise;
+        asyncSignal.set(loadable("success", "Success!", promise));
+      });
+
+      // Should now show success value
+      await waitFor(() => {
+        expect(screen.getByTestId("result")).toHaveTextContent("Success!");
+      });
+    });
+
+    it("should not interfere with non-loadable signal values", () => {
+      const normalSignal = signal({ count: 10 });
+      const asyncSignal = signal<Loadable<string>>(loadable("success", "test"));
+
+      const { container } = render(
+        rx([normalSignal, asyncSignal], (obj, str) => (
+          <div>
+            {obj.count} - {str}
+          </div>
+        ))
+      );
+
+      expect(container.textContent).toBe("10 - test");
+    });
+  });
+
+  describe("direct promises and loadables (not in signals)", () => {
+    it("should handle direct loadable success", () => {
+      const userLoadable = loadable("success", { id: 1, name: "Alice" });
+
+      const { container } = render(
+        rx([userLoadable], (user) => (
+          <div>
+            {user.id} - {user.name}
+          </div>
+        ))
+      );
+
+      expect(container.textContent).toBe("1 - Alice");
+    });
+
+    it("should handle direct loadable loading (triggers Suspense)", () => {
+      const promise = new Promise<string>((resolve) => {
+        setTimeout(() => resolve("data"), 100);
+      });
+      const loadingLoadable = loadable("loading", promise);
+
+      const FallbackComponent = () => (
+        <div data-testid="fallback">Loading...</div>
+      );
+      const { container } = render(
+        <Suspense fallback={<FallbackComponent />}>
+          {rx([loadingLoadable], (value) => (
+            <div data-testid="content">{value}</div>
+          ))}
+        </Suspense>
+      );
+
+      expect(container.textContent).toBe("Loading...");
+      expect(screen.getByTestId("fallback")).toBeTruthy();
+    });
+
+    it("should handle direct loadable error (triggers ErrorBoundary)", () => {
+      const error = new Error("Direct loadable failed");
+      const errorLoadable = loadable<string>("error", error);
+
+      expect(() => {
+        render(rx([errorLoadable], (value) => <div>{value}</div>));
+      }).toThrow("Direct loadable failed");
+    });
+
+    it("should handle direct promises", async () => {
+      let resolvePromise: (value: string) => void;
+      const promise = new Promise<string>((resolve) => {
+        resolvePromise = resolve;
+      });
+
+      const FallbackComponent = () => <div>Loading...</div>;
+      const TestComponent = () => (
+        <Suspense fallback={<FallbackComponent />}>
+          {rx([promise], (value) => (
+            <div data-testid="result">{value}</div>
+          ))}
+        </Suspense>
+      );
+
+      const { container } = render(<TestComponent />);
+
+      // Initially should show fallback (promise is loading)
+      expect(container.textContent).toBe("Loading...");
+
+      // Resolve promise
+      await act(async () => {
+        resolvePromise!("Promise resolved!");
+        await promise;
+      });
+
+      // Should now show resolved value
+      await waitFor(() => {
+        expect(screen.getByTestId("result")).toHaveTextContent(
+          "Promise resolved!"
+        );
+      });
+    });
+
+    it("should handle mixed direct loadables and signals", () => {
+      const syncSignal = signal(100);
+      const directLoadable = loadable("success", 200);
+
+      const { container } = render(
+        rx([syncSignal, directLoadable], (a, b) => <div>{a + b}</div>)
+      );
+
+      expect(container.textContent).toBe("300");
+    });
+
+    it("should handle mixed direct promises, loadables, and signals", async () => {
+      const syncSignal = signal(10);
+      const successLoadable = loadable("success", 20);
+      const resolvedPromise = Promise.resolve(30);
+
+      // Wait for promise to settle before rendering
+      await resolvedPromise;
+
+      const { container } = render(
+        rx([syncSignal, successLoadable, resolvedPromise], (a, b, c) => (
+          <div>{a + b + c}</div>
+        ))
+      );
+
+      await waitFor(() => {
+        expect(container.textContent).toBe("60");
+      });
+    });
+
+    it("should handle multiple direct promises", async () => {
+      const promise1 = Promise.resolve(100);
+      const promise2 = Promise.resolve(200);
+
+      // Wait for promises to settle
+      await Promise.all([promise1, promise2]);
+
+      const { container } = render(
+        rx([promise1, promise2], (a, b) => <div>{a + b}</div>)
+      );
+
+      await waitFor(() => {
+        expect(container.textContent).toBe("300");
+      });
+    });
+
+    it("should throw if direct promise rejects (via error loadable)", () => {
+      const error = new Error("Promise rejected");
+      const rejectedPromise = Promise.reject(error);
+
+      // Prevent unhandled rejection
+      rejectedPromise.catch(() => {});
+
+      // Use error loadable to simulate a rejected promise that's already cached
+      const errorLoadable = loadable("error", error, rejectedPromise);
+
+      expect(() => {
+        render(rx([errorLoadable], (value) => <div>{value}</div>));
+      }).toThrow("Promise rejected");
+    });
+
+    it("should reactively update when signal changes but direct loadable stays same", () => {
+      const syncSignal = signal(1);
+      const directLoadable = loadable("success", 100);
+
+      const { container } = render(
+        rx([syncSignal, directLoadable], (a, b) => <div>{a + b}</div>)
+      );
+
+      expect(container.textContent).toBe("101");
+
+      act(() => {
+        syncSignal.set(2);
+      });
+
+      expect(container.textContent).toBe("102");
+    });
+  });
+
+  describe("object shape dependencies (named parameters)", () => {
+    it("should handle object shape with sync signals", () => {
+      const count = signal(10);
+      const multiplier = signal(2);
+
+      const { container } = render(
+        rx({ count, multiplier }, ({ count, multiplier }) => (
+          <div>{count * multiplier}</div>
+        ))
+      );
+
+      expect(container.textContent).toBe("20");
+    });
+
+    it("should handle object shape with async signals", () => {
+      const user = signal<Loadable<{ name: string }>>(
+        loadable("success", { name: "Alice" })
+      );
+      const posts = signal<Loadable<string[]>>(
+        loadable("success", ["post1", "post2"])
+      );
+
+      const { container } = render(
+        rx({ user, posts }, ({ user, posts }) => (
+          <div>
+            {user.name} - {posts.length} posts
+          </div>
+        ))
+      );
+
+      expect(container.textContent).toBe("Alice - 2 posts");
+    });
+
+    it("should handle object shape with mixed sync and async", () => {
+      const syncCount = signal(5);
+      const asyncUser = signal<Loadable<{ id: number }>>(
+        loadable("success", { id: 123 })
+      );
+
+      const { container } = render(
+        rx({ syncCount, asyncUser }, ({ syncCount, asyncUser }) => (
+          <div>
+            {syncCount} - {asyncUser.id}
+          </div>
+        ))
+      );
+
+      expect(container.textContent).toBe("5 - 123");
+    });
+
+    it("should handle object shape with direct promises", async () => {
+      const promise1 = Promise.resolve(100);
+      const promise2 = Promise.resolve(200);
+
+      // Wait for promises to settle
+      await Promise.all([promise1, promise2]);
+
+      const { container } = render(
+        rx({ p1: promise1, p2: promise2 }, ({ p1, p2 }) => <div>{p1 + p2}</div>)
+      );
+
+      await waitFor(() => {
+        expect(container.textContent).toBe("300");
+      });
+    });
+
+    it("should handle object shape with direct loadables", () => {
+      const loadable1 = loadable("success", { value: 10 });
+      const loadable2 = loadable("success", { value: 20 });
+
+      const { container } = render(
+        rx({ l1: loadable1, l2: loadable2 }, ({ l1, l2 }) => (
+          <div>{l1.value + l2.value}</div>
+        ))
+      );
+
+      expect(container.textContent).toBe("30");
+    });
+
+    it("should handle object shape with loading state (Suspense)", () => {
+      const promise = new Promise<string>((resolve) => {
+        setTimeout(() => resolve("data"), 100);
+      });
+      const loadingLoadable = loadable("loading", promise);
+
+      const FallbackComponent = () => (
+        <div data-testid="fallback">Loading...</div>
+      );
+      const { container } = render(
+        <Suspense fallback={<FallbackComponent />}>
+          {rx({ data: loadingLoadable }, ({ data }) => (
+            <div data-testid="content">{data}</div>
+          ))}
+        </Suspense>
+      );
+
+      expect(container.textContent).toBe("Loading...");
+      expect(screen.getByTestId("fallback")).toBeTruthy();
+    });
+
+    it("should handle object shape with error state (ErrorBoundary)", () => {
+      const error = new Error("Object shape failed");
+      const errorLoadable = loadable<string>("error", error);
+
+      expect(() => {
+        render(rx({ data: errorLoadable }, ({ data }) => <div>{data}</div>));
+      }).toThrow("Object shape failed");
+    });
+
+    it("should reactively update with object shape", () => {
+      const count = signal(1);
+      const name = signal("Alice");
+
+      const { container } = render(
+        rx({ count, name }, ({ count, name }) => (
+          <div>
+            {name}: {count}
+          </div>
+        ))
+      );
+
+      expect(container.textContent).toBe("Alice: 1");
+
+      act(() => {
+        count.set(2);
+      });
+
+      expect(container.textContent).toBe("Alice: 2");
+
+      act(() => {
+        name.set("Bob");
+      });
+
+      expect(container.textContent).toBe("Bob: 2");
+    });
+
+    it("should handle object shape with many dependencies (readability)", () => {
+      const user = signal({ name: "Alice" });
+      const posts = signal(["post1", "post2"]);
+      const settings = signal({ theme: "dark" });
+      const notifications = signal(5);
+
+      const { container } = render(
+        rx(
+          { user, posts, settings, notifications },
+          ({ user, posts, settings, notifications }) => (
+            <div>
+              {user.name} - {posts.length} posts - {settings.theme} -{" "}
+              {notifications} notifications
+            </div>
+          )
+        )
+      );
+
+      expect(container.textContent).toBe(
+        "Alice - 2 posts - dark - 5 notifications"
+      );
+    });
+
+    it("should preserve property order in object shape", () => {
+      const a = signal("A");
+      const b = signal("B");
+      const c = signal("C");
+
+      const { container } = render(
+        rx({ a, b, c }, ({ a, b, c }) => <div>{a + b + c}</div>)
+      );
+
+      expect(container.textContent).toBe("ABC");
+    });
+
+    it("should work with computed signals in object shape", () => {
+      const base = signal(10);
+      const doubled = signal(() => base() * 2);
+      const tripled = signal(() => base() * 3);
+
+      const { container } = render(
+        rx({ base, doubled, tripled }, ({ base, doubled, tripled }) => (
+          <div>
+            {base} - {doubled} - {tripled}
+          </div>
+        ))
+      );
+
+      expect(container.textContent).toBe("10 - 20 - 30");
+
+      act(() => {
+        base.set(5);
+      });
+
+      expect(container.textContent).toBe("5 - 10 - 15");
     });
   });
 });

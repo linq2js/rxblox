@@ -18,7 +18,7 @@ Complete API documentation for all rxblox functions and utilities.
 - [blox.onRender](#bloxonrender)
 - [blox.onMount](#bloxonmount)
 - [blox.onUnmount](#bloxonunmount)
-- [blox.handle](#bloxhandlet)
+- [blox.hook](#bloxhookt)
 - [blox.ref](#bloxreft)
 - [blox.ready](#bloxready)
 - [blox.slot](#bloxslot)
@@ -75,6 +75,31 @@ const user = signal(
 **Context Parameter (for computed signals):**
 
 - `track(signals)` - Creates a proxy for explicit dependency tracking
+
+**⚠️ Important: Promise Values Not Allowed**
+
+Signals cannot hold Promise values directly. This would cause reactivity issues and memory leaks.
+
+```tsx
+// ❌ Don't do this
+const data = signal(fetch('/api/data')); // Promise!
+const result = signal(async () => { ... }); // Returns Promise!
+
+// ✅ Instead, use signal.async() for async values
+const data = signal.async(async () => {
+  const response = await fetch('/api/data');
+  return response.json();
+});
+
+// ✅ Or manage loading states with loadable
+const data = signal(loadable('loading'));
+fetch('/api/data')
+  .then(res => res.json())
+  .then(result => data.set(loadable('success', result)))
+  .catch(error => data.set(loadable('error', undefined, error)));
+```
+
+See [`signal.async()`](#signalasynct) and [`loadable`](#loadable) for proper async handling.
 
 ---
 
@@ -314,24 +339,116 @@ const MyComponent = blox(() => {
 
 ---
 
-## `rx(expression)`
+## `rx(expression)` or `rx([awaitables], fn)`
 
 Creates a reactive expression that re-renders when dependencies change.
 
-```tsx
-{
-  rx(() => <div>{count()}</div>);
-}
+### Basic Usage (Auto-tracking)
 
-// Can access multiple signals
-{
-  rx(() => (
-    <div>
-      {firstName()} {lastName()} - Count: {count()}
-    </div>
-  ));
-}
+```tsx
+// Simple expression
+{rx(() => <div>{count()}</div>)}
+
+// Access multiple signals
+{rx(() => (
+  <div>
+    {firstName()} {lastName()} - Count: {count()}
+  </div>
+))}
 ```
+
+### With Explicit Dependencies
+
+The second and third overloads allow explicit dependencies with automatic async handling.
+
+#### Array Syntax (Positional Parameters)
+
+```tsx
+// Explicit signal dependencies
+{rx([count, multiplier], (c, m) => (
+  <div>{c} × {m} = {c * m}</div>
+))}
+
+// With async signals (automatic Suspense)
+const user = signal.async(() => fetchUser(userId));
+const posts = signal.async(() => fetchPosts(userId));
+
+{rx([user, posts], (userData, postsData) => (
+  <div>
+    <h1>{userData.name}</h1>
+    <PostList posts={postsData} />
+  </div>
+))}
+
+// Direct promises (without signals)
+const userPromise = fetchUser(id);
+const postsPromise = fetchPosts(id);
+
+{rx([userPromise, postsPromise], (user, posts) => (
+  <UserProfile user={user} posts={posts} />
+))}
+
+// Direct loadables
+const userLoadable = loadable("success", userData);
+{rx([userLoadable], (user) => <div>{user.name}</div>)}
+
+// Mixed sync and async
+{rx([syncCount, asyncUser, directPromise], (count, user, settings) => (
+  <Dashboard count={count} user={user} settings={settings} />
+))}
+```
+
+#### Object Syntax (Named Parameters)
+
+For better readability with many dependencies, use object shape:
+
+```tsx
+// Named dependencies
+const user = signal.async(() => fetchUser());
+const posts = signal.async(() => fetchPosts());
+const settings = signal({ theme: 'dark' });
+
+{rx({ user, posts, settings }, ({ user, posts, settings }) => (
+  <Dashboard 
+    user={user} 
+    posts={posts} 
+    theme={settings.theme} 
+  />
+))}
+
+// Mix sync and async with named parameters
+{rx(
+  {
+    count: signal(0),
+    asyncUser: signal.async(() => fetchUser()),
+    directPromise: fetchSettings(),
+    loadable: loadable("success", config)
+  },
+  ({ count, asyncUser, directPromise, loadable }) => (
+    <div>All values are unwrapped and named!</div>
+  )
+)}
+```
+
+**Benefits of Object Syntax:**
+- ✅ Self-documenting - parameter names match their purpose
+- ✅ Order-independent - add/remove dependencies easily
+- ✅ Better for many dependencies (4+)
+- ✅ Easier refactoring
+
+**Supported Awaitable Types:**
+- `Signal<T>` - Regular reactive signals
+- `Signal<Loadable<T>>` - Async signals (from `signal.async()`)
+- `Signal<PromiseLike<T>>` - Signals containing promises
+- `PromiseLike<T>` - Direct promises
+- `Loadable<T>` - Direct loadable values
+- `undefined | null | false` - Optional dependencies
+
+**Automatic Unwrapping:**
+All async values are automatically unwrapped using the `wait()` API:
+- Loading state → Throws promise (triggers React Suspense)
+- Error state → Throws error (triggers ErrorBoundary)
+- Success state → Returns unwrapped value `T`
 
 **Returns:** ReactNode
 
@@ -488,11 +605,11 @@ const MyComponent = blox(() => {
 
 ---
 
-## `blox.handle<T>(callback)`
+## `blox.hook<T>(callback)`
 
-Creates a handle to capture values from React hooks during the render phase.
+Creates a ref to capture values from React hooks during the render phase.
 
-This is useful in `blox` components where you need to use React hooks, but the component body only runs once. The callback runs on every render via `blox.onRender()`, and the returned value is accessible via `.current`.
+This is useful in `blox` components where you need to use React hooks, but the component body only runs once. The callback runs on every render via `onEvent({ render })`, and the returned value is accessible via `.current`.
 
 **Important**: The captured value is only available inside `rx()` expressions or event handlers, not in the component definition phase (which runs only once).
 
@@ -504,7 +621,7 @@ const MyComponent = blox(() => {
   const count = signal(0);
 
   // Capture React hooks
-  const router = blox.handle(() => {
+  const router = blox.hook(() => {
     const history = useHistory();
     const location = useLocation();
     return { history, location };
@@ -527,12 +644,12 @@ const MyComponent = blox(() => {
 });
 ```
 
-**Returns:** `Handle<T>` - An object with a `.current` property
+**Returns:** `Ref<T>` - An object with a `.current` property
 
 **Type:**
 
 ```ts
-type Handle<T> = {
+type Ref<T> = {
   readonly current: T | undefined;
 };
 ```

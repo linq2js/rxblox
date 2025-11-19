@@ -3,12 +3,12 @@ import { render } from "@testing-library/react";
 import { blox } from "./index";
 
 describe("eventDispatcher", () => {
-  describe("blox.onMount", () => {
+  describe("blox.on - mount", () => {
     it("should call mount callback when component mounts", async () => {
       const mountCallback = vi.fn();
 
       const Component = blox(() => {
-        blox.onMount(mountCallback);
+        blox.on({ mount: mountCallback });
         return <div>Test</div>;
       });
 
@@ -23,7 +23,7 @@ describe("eventDispatcher", () => {
       const callback2 = vi.fn();
 
       const Component = blox(() => {
-        blox.onMount(callback1, callback2);
+        blox.on({ mount: [callback1, callback2] });
         return <div>Test</div>;
       });
 
@@ -35,7 +35,7 @@ describe("eventDispatcher", () => {
 
     it("should throw error when called outside blox component", () => {
       expect(() => {
-        blox.onMount(() => {});
+        blox.on({ mount: () => {} });
       }).toThrow("must be called inside a blox component");
     });
 
@@ -44,7 +44,7 @@ describe("eventDispatcher", () => {
 
       const Component = blox(() => {
         const [slot] = blox.slot(() => {
-          blox.onMount(mountCallback);
+          blox.on({ mount: mountCallback });
           return "slot logic";
         });
         return <div>{slot}</div>;
@@ -56,12 +56,12 @@ describe("eventDispatcher", () => {
     });
   });
 
-  describe("blox.onRender", () => {
+  describe("blox.on - render", () => {
     it("should call render callback on each render", () => {
       const renderCallback = vi.fn();
 
       const Component = blox<{ count: number }>((props) => {
-        blox.onRender(renderCallback);
+        blox.on({ render: renderCallback });
         return <div>{props.count}</div>;
       });
 
@@ -77,7 +77,7 @@ describe("eventDispatcher", () => {
       const callback2 = vi.fn();
 
       const Component = blox(() => {
-        blox.onRender(callback1, callback2);
+        blox.on({ render: [callback1, callback2] });
         return <div>Test</div>;
       });
 
@@ -88,7 +88,7 @@ describe("eventDispatcher", () => {
 
     it("should throw error when called outside blox component", () => {
       expect(() => {
-        blox.onRender(() => {});
+        blox.on({ render: () => {} });
       }).toThrow("must be called inside a blox component");
     });
 
@@ -99,7 +99,7 @@ describe("eventDispatcher", () => {
         // blox.slot() is called once during builder, but onRender is registered
         // to the parent component's render cycle
         const [slot] = blox.slot(() => {
-          blox.onRender(renderCallback);
+          blox.on({ render: renderCallback });
           return "slot logic";
         });
         return <div>{props.count} {slot}</div>;
@@ -115,12 +115,12 @@ describe("eventDispatcher", () => {
     });
   });
 
-  describe("blox.onUnmount", () => {
+  describe("blox.on - unmount", () => {
     it("should call unmount callback when component unmounts", async () => {
       const unmountCallback = vi.fn();
 
       const Component = blox(() => {
-        blox.onUnmount(unmountCallback);
+        blox.on({ unmount: unmountCallback });
         return <div>Test</div>;
       });
 
@@ -135,7 +135,7 @@ describe("eventDispatcher", () => {
 
     it("should throw error when called outside blox component", () => {
       expect(() => {
-        blox.onUnmount(() => {});
+        blox.on({ unmount: () => {} });
       }).toThrow("must be called inside a blox component");
     });
 
@@ -144,7 +144,7 @@ describe("eventDispatcher", () => {
 
       const Component = blox(() => {
         const [slot] = blox.slot(() => {
-          blox.onUnmount(unmountCallback);
+          blox.on({ unmount: unmountCallback });
           return "slot logic";
         });
         return <div>{slot}</div>;
@@ -159,21 +159,54 @@ describe("eventDispatcher", () => {
     });
   });
 
+  describe("blox.on - multiple events", () => {
+    it("should handle multiple event types at once", async () => {
+      const mountCallback = vi.fn();
+      const renderCallback = vi.fn();
+      const unmountCallback = vi.fn();
+
+      const Component = blox(() => {
+        blox.on({
+          mount: mountCallback,
+          render: renderCallback,
+          unmount: unmountCallback,
+        });
+        return <div>Test</div>;
+      });
+
+      const { unmount } = render(<Component />);
+      
+      // Render callback called immediately
+      expect(renderCallback).toHaveBeenCalledTimes(1);
+      
+      // Mount callback called after layout effects
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(mountCallback).toHaveBeenCalledTimes(1);
+
+      // Unmount callback not yet called
+      expect(unmountCallback).not.toHaveBeenCalled();
+
+      unmount();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(unmountCallback).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe("context validation", () => {
-    it("should throw error when onMount called in effect context", async () => {
+    it("should throw error when called in effect context", async () => {
       const { effect } = await import("./effect");
       expect(() => {
         effect(() => {
-          blox.onMount(() => {});
+          blox.on({ mount: () => {} });
         });
       }).toThrow("must be called inside a blox component");
     });
 
-    it("should throw error when onRender called in signal context", async () => {
+    it("should throw error when called in signal context", async () => {
       const { signal } = await import("./signal");
       expect(() => {
         const computed = signal(() => {
-          blox.onRender(() => {});
+          blox.on({ render: () => {} });
           return 0;
         });
         // Access the computed signal to trigger the computation
@@ -181,14 +214,14 @@ describe("eventDispatcher", () => {
       }).toThrow("must be called inside a blox component");
     });
 
-    it("should throw error when onUnmount called in batch context", async () => {
+    it("should throw error when called in batch context", async () => {
       const { signal } = await import("./signal");
       const { batch } = await import("./batch");
       const count = signal(0);
       
       expect(() => {
         batch(() => {
-          blox.onUnmount(() => {});
+          blox.on({ unmount: () => {} });
           count.set(1);
         });
       }).toThrow("must be called inside a blox component");

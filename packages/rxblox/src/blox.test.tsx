@@ -266,7 +266,7 @@ describe("blox", () => {
   describe("unmount function", () => {
     it("should throw error when called outside blox component", () => {
       expect(() => {
-        blox.onUnmount(() => {});
+        blox.on({ unmount: () => {} });
       }).toThrow("must be called inside a blox component");
     });
 
@@ -274,7 +274,7 @@ describe("blox", () => {
       const callback = vi.fn();
 
       const Component = blox(() => {
-        blox.onUnmount(callback);
+        blox.on({ unmount: callback });
         return <div>Test</div>;
       });
 
@@ -296,9 +296,7 @@ describe("blox", () => {
       const callback3 = vi.fn();
 
       const Component = blox(() => {
-        blox.onUnmount(callback1);
-        blox.onUnmount(callback2);
-        blox.onUnmount(callback3);
+        blox.on({ unmount: [callback1, callback2, callback3] });
         return <div>Test</div>;
       });
 
@@ -323,8 +321,7 @@ describe("blox", () => {
         .mockImplementation(() => {});
 
       const Component = blox(() => {
-        blox.onUnmount(errorCallback);
-        blox.onUnmount(normalCallback);
+        blox.on({ unmount: [errorCallback, normalCallback] });
         return <div>Test</div>;
       });
 
@@ -624,7 +621,7 @@ describe("blox", () => {
         const unsubscribe = externalSignal.on(() => {
           // Subscription callback
         });
-        blox.onUnmount(unsubscribe);
+        blox.on({ unmount: unsubscribe });
         return <div>{rx(externalSignal)}</div>;
       });
 

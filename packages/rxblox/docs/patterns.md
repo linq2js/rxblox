@@ -816,7 +816,7 @@ One of the most powerful features of `blox` is the ability to extract and reuse 
 **Component Utilities** (`withXXX` prefix)
 
 - Called inside `blox()` components only
-- Uses blox APIs: `blox.onMount()`, `blox.onUnmount()`, `blox.onRender()`, `blox.handle()`
+- Uses blox APIs: `blox.onMount()`, `blox.onUnmount()`, `blox.onRender()`, `blox.hook()`
 - Example: `withWebSocket()`, `withAutoSave()`, `withKeyboardShortcuts()`
 
 ⚠️ **Never use `useXXX`** - Reserved for React hooks only!

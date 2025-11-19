@@ -260,7 +260,7 @@ Each documentation file follows a consistent structure:
 - `blox.onRender(callback)`
 - `blox.onMount(callback)`
 - `blox.onUnmount(callback)`
-- `blox.handle<T>(callback)`
+- `blox.hook<T>(callback)`
 - `provider<T>(name, initialValue, options?)`
 - `loadable(status, value, promise?)`
 - `isLoadable(value)`

@@ -1,17 +1,15 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { blox } from "./blox";
-import { handle } from "./handle";
-import { signal } from "./signal";
-import { rx } from "./rx";
+import { blox, signal, rx } from "./index";
+import { hook } from "./hook";
 import { useState, useRef } from "react";
 
-describe("handle", () => {
+describe("hook", () => {
   it("should capture hook results", () => {
     const Component = blox(() => {
       const count = signal(0);
 
-      const captured = handle(() => {
+      const captured = blox.hook(() => {
         const [state] = useState("hello");
         return state;
       });
@@ -38,7 +36,7 @@ describe("handle", () => {
 
   it("should capture multiple hooks", () => {
     const Component = blox(() => {
-      const captured = handle(() => {
+      const captured = blox.hook(() => {
         const [stateA] = useState("A");
         const [stateB] = useState("B");
         const refC = useRef("C");
@@ -65,7 +63,7 @@ describe("handle", () => {
     let renderCount = 0;
 
     const Component = blox(() => {
-      const captured = handle(() => {
+      const captured = blox.hook(() => {
         renderCount++;
         return renderCount;
       });
@@ -85,22 +83,22 @@ describe("handle", () => {
   });
 
   it("should be undefined in builder phase, available in event handlers", () => {
-    let capturedHandle: ReturnType<typeof handle<string>> | undefined;
+    let capturedHook: ReturnType<typeof hook<string>> | undefined;
     let builderPhaseValue: string | undefined;
 
     const Component = blox(() => {
-      capturedHandle = handle(() => {
+      capturedHook = blox.hook(() => {
         return "value";
       });
 
       // At this point in builder phase, current is still undefined
-      builderPhaseValue = capturedHandle.current;
+      builderPhaseValue = capturedHook.current;
 
       return (
         <div>
           {/* Must use rx() to access the value in JSX */}
           {rx(() => (
-            <div data-testid="captured">{capturedHandle?.current}</div>
+            <div data-testid="captured">{capturedHook?.current}</div>
           ))}
         </div>
       );
@@ -115,7 +113,7 @@ describe("handle", () => {
     expect(screen.getByTestId("captured")).toHaveTextContent("value");
 
     // And after render completes, it's available
-    expect(capturedHandle?.current).toBe("value");
+    expect(capturedHook?.current).toBe("value");
   });
 
   it("should work with event handlers", () => {
@@ -124,7 +122,7 @@ describe("handle", () => {
     const Component = blox(() => {
       const count = signal(0);
 
-      const captured = handle(() => {
+      const captured = blox.hook(() => {
         return { id: Math.random() };
       });
 
@@ -162,7 +160,7 @@ describe("handle", () => {
     }
 
     const Component = blox(() => {
-      const captured = handle<CapturedData>(() => {
+      const captured = blox.hook<CapturedData>(() => {
         return {
           name: "John",
           age: 30,
@@ -196,7 +194,7 @@ describe("handle", () => {
       .mockImplementation(() => {});
 
     const Component = blox(() => {
-      const captured = handle(() => {
+      const captured = blox.hook(() => {
         throw new Error("Test error");
       });
 

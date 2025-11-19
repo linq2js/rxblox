@@ -1,5 +1,5 @@
 import { dispatcherToken, getDispatcher, getContextType } from "./dispatcher";
-import { Emitter } from "./emitter";
+import { emitter, Emitter } from "./emitter";
 
 /**
  * Event dispatcher that manages lifecycle event emitters for blox components.
@@ -21,34 +21,116 @@ export type EventDispatcher = Record<"unmount" | "mount" | "render", Emitter>;
 export const eventToken = dispatcherToken<EventDispatcher>("eventDispatcher");
 
 /**
- * Internal helper to register callbacks for a specific event type.
+ * Register lifecycle event handlers for blox components.
  *
- * @param type - The event type (unmount, mount, or render)
- * @param callbacks - Callbacks to register for this event
- * @throws {Error} If called outside a blox context
+ * This function allows you to register multiple event handlers at once,
+ * providing a convenient way to handle component lifecycle events.
+ *
+ * Exported as `blox.onEvent()` and `blox.on()`.
+ *
+ * @param events - Object mapping event names to callback(s)
+ * @returns Cleanup function to unregister all event handlers
+ *
+ * **Supported Events:**
+ * - `mount`: Called when component mounts
+ * - `unmount`: Called when component unmounts
+ * - `render`: Called on each render
+ *
+ * **Must be called inside a blox component.**
+ *
+ * @example Register single callbacks
+ * ```tsx
+ * const MyComponent = blox(() => {
+ *   blox.on({
+ *     mount: () => console.log('Mounted!'),
+ *     unmount: () => console.log('Unmounted!'),
+ *     render: () => console.log('Rendered!')
+ *   });
+ *
+ *   return <div>Content</div>;
+ * });
+ * ```
+ *
+ * @example Register multiple callbacks per event
+ * ```tsx
+ * const MyComponent = blox(() => {
+ *   blox.on({
+ *     mount: [
+ *       () => console.log('Mount handler 1'),
+ *       () => console.log('Mount handler 2')
+ *     ],
+ *     unmount: () => console.log('Cleanup')
+ *   });
+ *
+ *   return <div>Content</div>;
+ * });
+ * ```
+ *
+ * @example Partial events (only register what you need)
+ * ```tsx
+ * const MyComponent = blox(() => {
+ *   // Only register unmount handler
+ *   blox.on({
+ *     unmount: () => cleanup()
+ *   });
+ *
+ *   return <div>Content</div>;
+ * });
+ * ```
+ *
+ * @example Manual cleanup (if needed)
+ * ```tsx
+ * const MyComponent = blox(() => {
+ *   const cleanup = blox.on({
+ *     mount: () => console.log('Mounted')
+ *   });
+ *
+ *   // Manually unregister handlers if needed
+ *   // (usually not necessary as cleanup happens automatically)
+ *   // cleanup();
+ *
+ *   return <div>Content</div>;
+ * });
+ * ```
+ *
+ * @example Using standalone function
+ * ```tsx
+ * import { onEvent } from 'rxblox';
+ *
+ * const MyComponent = blox(() => {
+ *   onEvent({
+ *     mount: () => console.log('Mounted')
+ *   });
+ *
+ *   return <div>Content</div>;
+ * });
+ * ```
  */
-function onEvent(type: keyof EventDispatcher, callbacks: VoidFunction[]) {
+export function onEvent(
+  events: Partial<Record<keyof EventDispatcher, VoidFunction | VoidFunction[]>>
+): VoidFunction {
   const contextType = getContextType();
 
   if (contextType !== "blox") {
     throw new Error(
-      `blox.on${type.charAt(0).toUpperCase() + type.slice(1)}() must be called inside a blox component.\n\n` +
-      `Current context: ${contextType || "none"}\n\n` +
-      `❌ Don't do this:\n` +
-      `  function MyComponent() {\n` +
-      `    blox.on${type.charAt(0).toUpperCase() + type.slice(1)}(() => console.log('${type}'));  // Wrong context!\n` +
-      `    return <div>Content</div>;\n` +
-      `  }\n\n` +
-      `✅ Instead, use blox():\n` +
-      `  const MyComponent = blox(() => {\n` +
-      `    blox.on${type.charAt(0).toUpperCase() + type.slice(1)}(() => console.log('${type}'));  // Correct!\n` +
-      `    return <div>Content</div>;\n` +
-      `  });\n\n` +
-      `See: https://github.com/linq2js/rxblox#api-reference`
+      `onEvent() must be called inside a blox component.\n\n` +
+        `Current context: ${contextType || "none"}\n\n` +
+        `❌ Don't do this:\n` +
+        `  function MyComponent() {\n` +
+        `    onEvent({ mount: () => console.log('mount') });  // Wrong context!\n` +
+        `    return <div>Content</div>;\n` +
+        `  }\n\n` +
+        `✅ Instead, use blox():\n` +
+        `  const MyComponent = blox(() => {\n` +
+        `    onEvent({ mount: () => console.log('mount') });  // Correct!\n` +
+        `    return <div>Content</div>;\n` +
+        `  });\n\n` +
+        `See: https://github.com/linq2js/rxblox#api-reference`
     );
   }
 
   const dispatcher = getDispatcher(eventToken);
+  const onCleanup = emitter<void>();
 
   if (!dispatcher) {
     throw new Error(
@@ -56,106 +138,63 @@ function onEvent(type: keyof EventDispatcher, callbacks: VoidFunction[]) {
     );
   }
 
-  callbacks.forEach((callback) => dispatcher[type].on(callback));
+  // Register each event handler
+  for (const eventName in events) {
+    const callbacks = events[eventName as keyof EventDispatcher];
+
+    if (!callbacks) {
+      continue;
+    }
+
+    const emitter = dispatcher[eventName as keyof EventDispatcher];
+
+    // Handle both single callback and array of callbacks
+    if (Array.isArray(callbacks)) {
+      callbacks.forEach((callback) => {
+        onCleanup.on(emitter.on(callback));
+      });
+    } else {
+      onCleanup.on(emitter.on(callbacks));
+    }
+  }
+
+  return onCleanup.emitAndClear;
 }
 
 /**
- * Registers callbacks to run when the component unmounts.
+ * Register a mount event handler for blox components.
  *
- * Must be called inside a `blox` component.
- * Exported as `blox.onUnmount()`.
+ * Convenience wrapper around `onEvent({ mount: ... })`.
  *
- * @param callbacks - Functions to call on component unmount
- * @throws {Error} If called outside a blox context
- *
- * @example
- * ```tsx
- * const MyComponent = blox(() => {
- *   blox.onUnmount(() => console.log("Unmounting"));
- *   return <div>Content</div>;
- * });
- * ```
- *
- * @example
- * ```tsx
- * // Works inside blox.slot() too (inherits blox context)
- * const MyComponent = blox(() => {
- *   const [slot] = blox.slot(() => {
- *     blox.onUnmount(() => console.log("Cleanup"));
- *     return "some logic";
- *   });
- *   return <div>{slot}</div>;
- * });
- * ```
+ * @param callbacks - One or more callbacks to run when component mounts
+ * @returns Cleanup function to unregister the handler(s)
  */
-export function onUnmount(...callbacks: VoidFunction[]) {
-  onEvent("unmount", callbacks);
+export function onMount(...callbacks: VoidFunction[]): VoidFunction {
+  return onEvent({ mount: callbacks.length === 1 ? callbacks[0] : callbacks });
 }
 
 /**
- * Registers callbacks to run when the component mounts.
+ * Register an unmount event handler for blox components.
  *
- * Must be called inside a `blox` component.
- * Exported as `blox.onMount()`.
+ * Convenience wrapper around `onEvent({ unmount: ... })`.
  *
- * @param callbacks - Functions to call on component mount
- * @throws {Error} If called outside a blox context
- *
- * @example
- * ```tsx
- * const MyComponent = blox(() => {
- *   blox.onMount(() => console.log("Mounted"));
- *   return <div>Content</div>;
- * });
- * ```
- *
- * @example
- * ```tsx
- * const MyComponent = blox(() => {
- *   const [slot] = blox.slot(() => {
- *     blox.onMount(() => console.log("Slot mounted"));
- *     return "some logic";
- *   });
- *   return <div>{slot}</div>;
- * });
- * ```
+ * @param callbacks - One or more callbacks to run when component unmounts
+ * @returns Cleanup function to unregister the handler(s)
  */
-export function onMount(...callbacks: VoidFunction[]) {
-  onEvent("mount", callbacks);
+export function onUnmount(...callbacks: VoidFunction[]): VoidFunction {
+  return onEvent({
+    unmount: callbacks.length === 1 ? callbacks[0] : callbacks,
+  });
 }
 
 /**
- * Registers callbacks to run on each render.
+ * Register a render event handler for blox components.
  *
- * Must be called inside a `blox` component during the definition phase.
- * The callback executes during React's render phase, enabling React hooks usage.
- * Exported as `blox.onRender()`.
+ * Convenience wrapper around `onEvent({ render: ... })`.
  *
- * @param callbacks - Functions to call on each render
- * @throws {Error} If called outside a blox context
- *
- * @example
- * ```tsx
- * const MyComponent = blox(() => {
- *   blox.onRender(() => {
- *     const history = useHistory();
- *     // Note: no return value
- *   });
- *   return <div>Content</div>;
- * });
- * ```
- *
- * @example
- * ```tsx
- * const MyComponent = blox(() => {
- *   const [slot] = blox.slot(() => {
- *     blox.onRender(() => console.log("Slot rendering"));
- *     return "some logic";
- *   });
- *   return <div>{slot}</div>;
- * });
- * ```
+ * @param callbacks - One or more callbacks to run on each render
+ * @returns Cleanup function to unregister the handler(s)
  */
-export function onRender(...callbacks: VoidFunction[]) {
-  onEvent("render", callbacks);
+export function onRender(...callbacks: VoidFunction[]): VoidFunction {
+  return onEvent({ render: callbacks.length === 1 ? callbacks[0] : callbacks });
 }
