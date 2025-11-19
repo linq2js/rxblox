@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { useRerender } from "./useRerender";
 import { trackingDispatcher, trackingToken } from "./trackingDispatcher";
 import { emitter } from "./emitter";
+import { createProxy } from "./utils/proxy/createProxy";
 
 /**
  * The return type of `useTracked`, mapping getters to their return types.
@@ -165,33 +166,36 @@ export function useTracked<T extends Record<string, () => unknown>>(
        * - Outside render: Returns value without tracking (avoids memory leaks)
        * - Each access is tracked individually (enables conditional dependencies)
        */
-      tracked: new Proxy(gettersOrSignals, {
-        get(_target, prop) {
-          const getter = gettersRef.current[prop as keyof T];
+      tracked: createProxy({
+        get: () => gettersOrSignals,
+        traps: {
+          get(_, prop) {
+            const getter = gettersRef.current[prop as keyof T];
 
-          // Runtime validation: ensure all values are functions
-          if (typeof getter !== "function") {
-            throw new Error(`Prop ${prop as string} must be a function`);
-          }
+            // Runtime validation: ensure all values are functions
+            if (typeof getter !== "function") {
+              throw new Error(`Prop ${prop as string} must be a function`);
+            }
 
-          // Outside render phase: return value without tracking
-          // This prevents memory leaks from event handlers, effects, etc.
-          if (!rerender.rendering()) {
-            return getter();
-          }
+            // Outside render phase: return value without tracking
+            // This prevents memory leaks from event handlers, effects, etc.
+            if (!rerender.rendering()) {
+              return getter();
+            }
 
-          // During render phase: track this getter as a dependency
-          return trackingToken.with(dispatcher, getter);
-        },
-        ownKeys() {
-          return Object.keys(gettersRef.current);
-        },
-        getOwnPropertyDescriptor(_, prop) {
-          if (typeof prop === "symbol") return undefined;
-          return {
-            enumerable: true,
-            configurable: true,
-          };
+            // During render phase: track this getter as a dependency
+            return trackingToken.with(dispatcher, getter);
+          },
+          ownKeys() {
+            return Object.keys(gettersRef.current);
+          },
+          getOwnPropertyDescriptor(_, prop) {
+            if (typeof prop === "symbol") return undefined;
+            return {
+              enumerable: true,
+              configurable: true,
+            };
+          },
         },
       }),
       dispatcher,

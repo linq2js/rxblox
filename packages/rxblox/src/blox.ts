@@ -24,6 +24,7 @@ import once from "lodash/once";
 import { trackingToken } from "./trackingDispatcher";
 import { disposableToken } from "./disposableDispatcher";
 import { syncOnly } from "./utils/syncOnly";
+import { createProxy } from "./utils/proxy/createProxy";
 
 /**
  * Creates a reactive component that tracks props as signals and manages effects.
@@ -228,9 +229,10 @@ export function blox<TProps extends object, TRef>(
      *
      * Created once per component instance and reused across builders.
      */
-    const [propsProxy] = useState(
-      () =>
-        new Proxy({} as PropsWithoutRef<TProps>, {
+    const [propsProxy] = useState(() =>
+      createProxy({
+        get: () => ({} as PropsWithoutRef<TProps>),
+        traps: {
           /**
            * Intercepts property access on the props object.
            * When a prop is accessed, it tracks the corresponding signal
@@ -278,7 +280,8 @@ export function blox<TProps extends object, TRef>(
             }
             return undefined;
           },
-        })
+        },
+      })
     );
 
     /**

@@ -4,6 +4,7 @@ import { useUnmount } from "./useUnmount";
 import { signal } from "./signal";
 import { emitter } from "./emitter";
 import { disposableToken } from "./disposableDispatcher";
+import { createProxy } from "./utils/proxy/createProxy";
 
 /**
  * The return type of `useSignals`, mapping each property to a mutable signal.
@@ -210,56 +211,59 @@ export function useSignals<T extends object>(
        * - Subsequent access: returns cached signal from map
        * - Signals are created with disposable dispatcher for automatic cleanup
        */
-      proxy: new Proxy(values, {
-        /**
-         * Intercept property access to return signals instead of raw values.
-         * Implements lazy creation - signals are only created when accessed.
-         */
-        get(_, prop) {
-          // Ignore symbol properties (e.g., Symbol.iterator)
-          if (typeof prop === "symbol") {
-            return undefined;
-          }
+      proxy: createProxy({
+        get: () => values,
+        traps: {
+          /**
+           * Intercept property access to return signals instead of raw values.
+           * Implements lazy creation - signals are only created when accessed.
+           */
+          get(_, prop) {
+            // Ignore symbol properties (e.g., Symbol.iterator)
+            if (typeof prop === "symbol") {
+              return undefined;
+            }
 
-          // Check if signal already exists
-          let s = signals.get(prop as keyof T);
-          if (!s) {
-            // First access - create new signal
-            const initialValue = valuesRef.current[prop as keyof T];
+            // Check if signal already exists
+            let s = signals.get(prop as keyof T);
+            if (!s) {
+              // First access - create new signal
+              const initialValue = valuesRef.current[prop as keyof T];
 
-            // Create signal with disposable dispatcher so it can be cleaned up
-            // when the component unmounts via onCleanup.emitAndClear()
-            s = disposableToken.with(onCleanup, () =>
-              signal(initialValue, {
-                equals: optionsRef.current.equals,
-              })
-            );
+              // Create signal with disposable dispatcher so it can be cleaned up
+              // when the component unmounts via onCleanup.emitAndClear()
+              s = disposableToken.with(onCleanup, () =>
+                signal(initialValue, {
+                  equals: optionsRef.current.equals,
+                })
+              );
 
-            // Cache signal for subsequent access
-            signals.set(prop as keyof T, s);
-          }
+              // Cache signal for subsequent access
+              signals.set(prop as keyof T, s);
+            }
 
-          return s;
-        },
+            return s;
+          },
 
-        /**
-         * Return object keys for Object.keys(), for...in, etc.
-         * Uses current values to reflect any changes.
-         */
-        ownKeys() {
-          return Object.keys(valuesRef.current);
-        },
+          /**
+           * Return object keys for Object.keys(), for...in, etc.
+           * Uses current values to reflect any changes.
+           */
+          ownKeys() {
+            return Object.keys(valuesRef.current);
+          },
 
-        /**
-         * Define property descriptors for proper enumeration.
-         * Required for Object.keys() to work correctly with the proxy.
-         */
-        getOwnPropertyDescriptor(_, prop) {
-          if (typeof prop === "symbol") return undefined;
-          return {
-            enumerable: true,
-            configurable: true,
-          };
+          /**
+           * Define property descriptors for proper enumeration.
+           * Required for Object.keys() to work correctly with the proxy.
+           */
+          getOwnPropertyDescriptor(_, prop) {
+            if (typeof prop === "symbol") return undefined;
+            return {
+              enumerable: true,
+              configurable: true,
+            };
+          },
         },
       }),
     };

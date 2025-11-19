@@ -8,6 +8,7 @@ import { dispatcherToken } from "./dispatcher";
 import { emitter, Emitter } from "./emitter";
 import { disposableToken } from "./disposableDispatcher";
 import { signal } from "./signal";
+import { createProxy } from "./utils/proxy/createProxy";
 
 /**
  * Dispatcher token for dependency tracking.
@@ -283,16 +284,30 @@ export function trackingDispatcher(
       return createTrackableExpression(getters, equals!);
     }
 
-    return new Proxy(getters, {
-      get(_target, prop) {
-        const value = getters[prop as keyof typeof getters];
-        if (typeof value !== "function") {
-          throw new Error(`Track prop ${prop as string} must be a function`);
-        }
-        // Execute function with dispatcher context to perform tracking
-        // This ensures tracking happens at property access time, maintaining
-        // the dispatcher context even in async scenarios
-        return trackingToken.with(dispatcher, value);
+    return createProxy({
+      get: () => getters,
+      traps: {
+        get(target, prop) {
+          const value = target[prop as keyof typeof target];
+          
+          // Skip built-in function properties that aren't in the getters object
+          // These are added by createProxy's ownKeys trap but aren't signal getters
+          if (value === undefined) {
+            const builtInProps = ['length', 'name', 'prototype', 'arguments', 'caller', 'constructor', 'toString', 'apply', 'call', 'bind'];
+            if (builtInProps.includes(String(prop))) {
+              // Return undefined for built-in properties not in getters
+              return undefined;
+            }
+          }
+
+          if (typeof value !== "function") {
+            throw new Error(`Track prop ${prop as string} must be a function`);
+          }
+          // Execute function with dispatcher context to perform tracking
+          // This ensures tracking happens at property access time, maintaining
+          // the dispatcher context even in async scenarios
+          return trackingToken.with(dispatcher, value);
+        },
       },
     }) as any;
   };

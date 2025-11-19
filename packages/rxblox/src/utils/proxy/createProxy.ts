@@ -260,26 +260,54 @@ export function createProxy<T>(options: ProxyOptions<T>): T {
       return prop in (current as any);
     },
 
-    ownKeys(_) {
+    ownKeys(proxyTarget) {
       const current = get();
 
+      let customKeys: (string | symbol)[];
       if (traps.ownKeys) {
-        return traps.ownKeys(current);
+        customKeys = traps.ownKeys(current);
+      } else {
+        customKeys = Reflect.ownKeys(current as any);
       }
 
-      return Reflect.ownKeys(current as any);
+      // Merge with function target's own keys to satisfy proxy invariants
+      // Functions have non-configurable properties like 'prototype', 'length', etc.
+      const targetKeys = Reflect.ownKeys(proxyTarget);
+      const allKeys = new Set([...targetKeys, ...customKeys]);
+
+      return Array.from(allKeys);
     },
 
-    getOwnPropertyDescriptor(_, prop) {
+    getOwnPropertyDescriptor(proxyTarget, prop) {
       const current = get();
 
+      // If custom trap is provided, give it priority
       if (traps.getOwnPropertyDescriptor) {
-        return traps.getOwnPropertyDescriptor(current, prop);
+        const customDesc = traps.getOwnPropertyDescriptor(current, prop);
+        // If custom trap explicitly returns a descriptor, use it
+        if (customDesc !== undefined) {
+          return customDesc;
+        }
+        // If custom trap returns undefined, check if property exists on proxy target
+        // (for non-configurable function properties that must be reported)
+        const targetDesc = Object.getOwnPropertyDescriptor(proxyTarget, prop);
+        if (targetDesc && !targetDesc.configurable) {
+          return targetDesc;
+        }
+        // Otherwise, respect the custom trap's undefined return
+        return undefined;
       }
 
-      const desc = Object.getOwnPropertyDescriptor(current as any, prop);
+      // No custom trap - use default behavior
+      let desc = Object.getOwnPropertyDescriptor(current as any, prop);
 
-      // If property doesn't exist on target, return configurable descriptor
+      // If not found, check the proxy target (function properties)
+      // This is crucial for satisfying proxy invariants
+      if (!desc) {
+        desc = Object.getOwnPropertyDescriptor(proxyTarget, prop);
+      }
+
+      // If still not found, return a configurable descriptor
       if (!desc) {
         return {
           enumerable: true,
