@@ -15,6 +15,7 @@ import { getDispatcher, getContextType } from "./dispatcher";
 import { disposableToken } from "./disposableDispatcher";
 import { isPromiseLike } from "./isPromiseLike";
 import { batchToken } from "./batchDispatcher";
+import { createProxy } from "./utils/proxy/createProxy";
 
 /**
  * Global queue for coordinating post-batch recomputations.
@@ -428,6 +429,7 @@ export function signal<T>(
     readonly: undefined as unknown as Signal<T>,
     persistInfo,
     hydrate,
+    proxy: undefined as any, // Will be properly defined via Object.defineProperty
     toJSON() {
       return s.peek();
     },
@@ -740,6 +742,33 @@ export function signal<T>(
   Object.assign(s, {
     readonly: s,
     displayName: options.name,
+  });
+
+  // Add .proxy property for stable, readonly access to object/function values
+  // Cache the proxy for stable reference
+  let cachedProxy: any = undefined;
+
+  Object.defineProperty(s, "proxy", {
+    get() {
+      const currentValue = s();
+
+      // Only create proxy for objects and functions
+      if (currentValue && typeof currentValue === "object") {
+        if (!cachedProxy) {
+          cachedProxy = createProxy({
+            get: () => s(),
+            // No set option = readonly
+          });
+        }
+        return cachedProxy;
+      }
+
+      // For primitives, return never (will cause TypeScript error)
+      // This matches the type definition: T extends object | Function ? Readonly<T> : never
+      return currentValue;
+    },
+    enumerable: true,
+    configurable: false,
   });
 
   // Register signal with tags

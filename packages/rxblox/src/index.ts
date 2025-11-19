@@ -75,3 +75,7 @@ export {
   objectKeyedCollection,
   type ObjectKeyedCollection,
 } from "./utils/objectKeyedCollection";
+
+// Proxy utilities
+export { createProxy } from "./utils/proxy/createProxy";
+export type { ProxyOptions, AnyFunc } from "./utils/proxy/createProxy";

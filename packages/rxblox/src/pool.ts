@@ -30,10 +30,8 @@ export type PoolOptions<K> = {
  */
 type InternalEntry<R extends object> = {
   result: R;
-  proxy: R; // Cached proxy to return same reference
   refs: number;
   cleanup: VoidFunction;
-  deleted: boolean;
 };
 
 /**
@@ -205,24 +203,6 @@ export type PoolFunction<K, R extends object> = {
  * dispose() // Manual cleanup
  * ```
  *
- * @example Accessing deleted entry throws error
- * ```ts
- * const createLogic = pool((id: number) => {
- *   return { value: signal(0) }
- * })
- *
- * const Component = blox(() => {
- *   const logic = createLogic(1)
- *   return <div>{logic.value()}</div>
- * })
- *
- * const { unmount } = render(<Component />)
- * unmount() // Auto GC deletes instance
- *
- * const logic = createLogic(1) // New instance
- * // Old reference throws if accessed:
- * // oldLogic.value() // Error: Cannot access deleted pooled instance
- * ```
  */
 export function pool<K = void, R extends object = {}>(
   fn: (key: K) => R,
@@ -256,39 +236,8 @@ export function pool<K = void, R extends object = {}>(
 
     // Immediate GC
     if (cache.delete(key)) {
-      entry.deleted = true;
       entry.cleanup();
     }
-  };
-
-  // Helper to create proxy that checks if entry is deleted
-  const createProxy = (entry: InternalEntry<R>): R => {
-    return new Proxy(entry.result, {
-      get(target, prop, receiver) {
-        if (entry.deleted) {
-          throw new Error(
-            `Cannot access deleted pooled instance. ` +
-              `The instance was garbage collected when all components stopped using it.\n\n` +
-              `This usually happens when:\n` +
-              `1. You stored a reference to the instance\n` +
-              `2. All components using it unmounted (triggering GC)\n` +
-              `3. You tried to access the stored reference\n\n` +
-              `Solution: Always call the factory function to get the current instance:\n` +
-              `  const logic = createLogic(key) // Always get fresh reference`
-          );
-        }
-        return Reflect.get(target, prop, receiver);
-      },
-      set(target, prop, value, receiver) {
-        if (entry.deleted) {
-          throw new Error(
-            `Cannot modify deleted pooled instance. ` +
-              `The instance was garbage collected when all components stopped using it.`
-          );
-        }
-        return Reflect.set(target, prop, value, receiver);
-      },
-    });
   };
 
   const poolFn = (key: K): R => {
@@ -320,7 +269,7 @@ export function pool<K = void, R extends object = {}>(
         }
       }
 
-      return existingEntry.proxy; // Return cached proxy
+      return existingEntry.result; // Return cached result
     }
 
     // Cache miss - create with disposable context
@@ -346,10 +295,8 @@ export function pool<K = void, R extends object = {}>(
     // Create placeholder entry (will update result later)
     const entry: InternalEntry<R> = {
       result: undefined as any, // Temporary
-      proxy: undefined as any, // Temporary
       refs: initialRefs,
       cleanup: () => {},
-      deleted: false,
     };
 
     // Register decrement on cleanup BEFORE creating result
@@ -372,13 +319,10 @@ export function pool<K = void, R extends object = {}>(
     entry.result = result;
     entry.cleanup = () => cleanup.emitAndClear();
 
-    // Create and cache proxy
-    entry.proxy = createProxy(entry);
-
     // Store entry in cache
     cache.set(key, entry);
 
-    return entry.proxy;
+    return entry.result;
   };
 
   // Implement .once() method for one-off, non-pooled instances

@@ -181,6 +181,56 @@ export type Signal<T> = {
   toJSON(): T;
 
   readonly displayName?: string;
+
+  /**
+   * Readonly proxy for convenient property access to signal values.
+   *
+   * **Stability:** The proxy object is stable (same reference) even as the underlying
+   * signal value changes. This is different from calling the signal getter, which may
+   * return different object references after updates.
+   *
+   * ```ts
+   * const state = signal({ count: 0 });
+   *
+   * // ❌ Unstable: different references after updates
+   * const obj1 = state();
+   * state.set({ count: 1 });
+   * const obj2 = state();
+   * obj1 !== obj2  // true (different references)
+   *
+   * // ✅ Stable: same proxy reference
+   * const proxy1 = state.proxy;
+   * state.set({ count: 1 });
+   * const proxy2 = state.proxy;
+   * proxy1 === proxy2  // true (stable proxy)
+   * ```
+   *
+   * **Read-only:** The proxy is for reading values only. Write attempts will throw errors.
+   *
+   * **For objects/functions:** Returns a stable proxy that reads from the latest signal value.
+   * **For primitives:** Returns `never` (use signal getter instead).
+   *
+   * @example Reading object properties
+   * ```ts
+   * const todo = signal({ title: 'hello', done: false });
+   *
+   * // Read via proxy (stable reference)
+   * console.log(todo.proxy.title);  // 'hello'
+   * console.log(todo.proxy.done);   // false
+   *
+   * // Mutation not allowed
+   * todo.proxy.title = 'world';  // ❌ Error: readonly
+   * ```
+   *
+   * @example With computed signals
+   * ```ts
+   * const doubled = computed(() => ({ count: state().count * 2 }));
+   *
+   * console.log(doubled.proxy.count);  // ✅ Read
+   * doubled.proxy.count = 10;          // ❌ Error: readonly
+   * ```
+   */
+  readonly proxy: T extends object | Function ? Readonly<T> : never;
 };
 
 /**
