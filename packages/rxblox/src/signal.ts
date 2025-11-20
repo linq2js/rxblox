@@ -1,6 +1,5 @@
 import { produce } from "immer";
 import type {
-  Listener,
   MutableSignal,
   PersistInfo,
   Persistor,
@@ -294,7 +293,7 @@ export function signal<T>(
   }
 
   // Cache for the current computed value (for computed signals)
-  let current: { value: T } | undefined;
+  let current: { value: T; error?: unknown } | undefined;
   const onCleanup = emitter<void>();
   const { equals = Object.is, persist, tags } = options;
   let hydrate = () => {};
@@ -318,66 +317,70 @@ export function signal<T>(
     // Clean up previous computation dependencies
     onCleanup.emitAndClear();
 
-    let computedValue: T;
+    try {
+      let computedValue: T;
 
-    if (typeof value === "function") {
-      // This is a computed signal - track dependencies
-      const tracking$ = trackingDispatcher(recompute, onCleanup);
-      let abortController: AbortController | undefined;
-      const context: ComputedSignalContext = {
-        track: tracking$.track,
-        get abortSignal() {
-          if (!abortController) {
-            abortController = new AbortController();
-            onCleanup.on(() => {
-              abortController?.abort();
-              abortController = undefined;
-            });
-          }
-          return abortController.signal;
-        },
-      };
-      // Execute the computation function and track which signals it accesses
-      // The dispatcher tracks implicit accesses (signal calls)
-      // The track() proxy tracks explicit accesses (proxy property access)
-      computedValue = withDispatchers(
-        [
-          trackingToken(tracking$),
-          // Allow all reactive things created during the computation to be cleaned up
-          disposableToken(onCleanup),
-        ],
-        () => (value as (context: ComputedSignalContext) => T)(context)
-      );
-    } else {
-      // Static value - just cache it
-      computedValue = value;
+      if (typeof value === "function") {
+        // This is a computed signal - track dependencies
+        const tracking$ = trackingDispatcher(recompute, onCleanup);
+        let abortController: AbortController | undefined;
+        const context: ComputedSignalContext = {
+          track: tracking$.track,
+          get abortSignal() {
+            if (!abortController) {
+              abortController = new AbortController();
+              onCleanup.on(() => {
+                abortController?.abort();
+                abortController = undefined;
+              });
+            }
+            return abortController.signal;
+          },
+        };
+        // Execute the computation function and track which signals it accesses
+        // The dispatcher tracks implicit accesses (signal calls)
+        // The track() proxy tracks explicit accesses (proxy property access)
+        computedValue = withDispatchers(
+          [
+            trackingToken(tracking$),
+            // Allow all reactive things created during the computation to be cleaned up
+            disposableToken(onCleanup),
+          ],
+          () => (value as (context: ComputedSignalContext) => T)(context)
+        );
+      } else {
+        // Static value - just cache it
+        computedValue = value;
+      }
+
+      // Validate that the value is not a Promise
+      if (isPromiseLike(computedValue)) {
+        throw new Error(
+          "Signals cannot hold Promise values directly. " +
+            "Promises would cause reactivity issues and memory leaks.\n\n" +
+            "❌ Don't do this:\n" +
+            "  const data = signal(fetchData());  // Promise!\n" +
+            "  const result = signal(async () => { ... });  // Returns Promise!\n\n" +
+            "✅ Instead, use signal.async() for async values:\n" +
+            "  const data = signal.async(async () => {\n" +
+            "    const response = await fetch('/api/data');\n" +
+            "    return response.json();\n" +
+            "  });\n\n" +
+            "✅ Or use loadable with wait():\n" +
+            "  const data = signal(loadable('loading'));\n" +
+            "  fetch('/api/data')\n" +
+            "    .then(res => res.json())\n" +
+            "    .then(result => data.set(loadable('success', result)))\n" +
+            "    .catch(error => data.set(loadable('error', undefined, error)));\n\n" +
+            "See: https://github.com/linq2js/rxblox#async-data"
+        );
+      }
+
+      current = { value: computedValue };
+    } catch (error) {
+      current = { error, value: current?.value as T };
     }
-
-    // Validate that the value is not a Promise
-    if (isPromiseLike(computedValue)) {
-      throw new Error(
-        "Signals cannot hold Promise values directly. " +
-          "Promises would cause reactivity issues and memory leaks.\n\n" +
-          "❌ Don't do this:\n" +
-          "  const data = signal(fetchData());  // Promise!\n" +
-          "  const result = signal(async () => { ... });  // Returns Promise!\n\n" +
-          "✅ Instead, use signal.async() for async values:\n" +
-          "  const data = signal.async(async () => {\n" +
-          "    const response = await fetch('/api/data');\n" +
-          "    return response.json();\n" +
-          "  });\n\n" +
-          "✅ Or use loadable with wait():\n" +
-          "  const data = signal(loadable('loading'));\n" +
-          "  fetch('/api/data')\n" +
-          "    .then(res => res.json())\n" +
-          "    .then(result => data.set(loadable('success', result)))\n" +
-          "    .catch(error => data.set(loadable('error', undefined, error)));\n\n" +
-          "See: https://github.com/linq2js/rxblox#async-data"
-      );
-    }
-
-    current = { value: computedValue };
-    return computedValue;
+    return current;
   };
 
   // Track whether we have a pending recomputation scheduled
@@ -386,10 +389,10 @@ export function signal<T>(
   const performRecompute = () => {
     pendingRecompute = false;
     const prev = current;
-    const nextValue = compute();
-    if (!prev || !equals(prev.value, nextValue)) {
-      current = { value: nextValue };
-      onChange.emit(nextValue);
+    const next = compute();
+    if (!prev || next.error || !equals(prev.value, next.value)) {
+      current = next;
+      onChange.emit();
     }
   };
 
@@ -435,7 +438,15 @@ export function signal<T>(
     try {
       // Compute if not already cached
       if (!current) {
-        return compute();
+        const { value, error } = compute();
+        if (error !== undefined) {
+          throw error;
+        }
+        return value;
+      }
+      // Check for cached error (use 'error' in current to handle falsy errors like null)
+      if ("error" in current && current.error !== undefined) {
+        throw current.error;
       }
       return current.value;
     } finally {
@@ -495,11 +506,11 @@ export function signal<T>(
       const batchDispatcher = getDispatcher(batchToken);
       if (batchDispatcher) {
         batchDispatcher.enqueue(() => {
-          onChange.emit(nextValue);
+          onChange.emit();
         }, s);
       } else {
         // Notify all listeners (use slice() to avoid issues if listeners modify the array)
-        onChange.emit(nextValue);
+        onChange.emit();
       }
 
       // Persist the new value
@@ -509,7 +520,7 @@ export function signal<T>(
     }
   };
 
-  const onChange = emitter<T>();
+  const onChange = emitter();
 
   // Create the signal object by assigning methods to the get function
   let s: MutableSignal<T> & { persistInfo: PersistInfo } = Object.assign(get, {
@@ -540,7 +551,15 @@ export function signal<T>(
      */
     peek() {
       if (!current) {
-        return compute();
+        const { value, error } = compute();
+        if (error !== undefined) {
+          throw error;
+        }
+        return value;
+      }
+      // Check for cached error (use 'error' in current to handle falsy errors like null)
+      if ("error" in current && current.error !== undefined) {
+        throw current.error;
       }
       return current.value;
     },
@@ -551,13 +570,84 @@ export function signal<T>(
      * @param listener - Function to call when the signal value changes
      * @returns An unsubscribe function to remove the listener
      */
-    on(listener: Listener<T>): VoidFunction {
+    on(listener: VoidFunction): VoidFunction {
       return onChange.on(listener);
     },
 
     reset() {
       current = undefined;
       recompute();
+    },
+
+    /**
+     * Checks if the signal has an error without throwing it.
+     * Useful for conditional error handling.
+     *
+     * @returns true if the signal computation resulted in an error
+     *
+     * @example
+     * ```typescript
+     * const a = signal(() => riskyOperation());
+     * const b = signal(() => {
+     *   if (a.hasError()) return 0; // Fallback value
+     *   return a() * 2;
+     * });
+     * ```
+     */
+    hasError(): boolean {
+      if (!current) {
+        compute();
+      }
+      return current
+        ? "error" in current && current.error !== undefined
+        : false;
+    },
+
+    /**
+     * Gets the error from the last failed computation without throwing it.
+     * Returns undefined if there is no error.
+     *
+     * @returns The error from the last computation, or undefined
+     *
+     * @example
+     * ```typescript
+     * const a = signal(() => riskyOperation());
+     * try {
+     *   a();
+     * } catch (e) {
+     *   const error = a.getError();
+     *   console.error('Signal failed:', error);
+     * }
+     * ```
+     */
+    getError(): unknown {
+      if (!current) {
+        try {
+          compute();
+        } catch {
+          // Ignore the throw, we just want to populate current
+        }
+      }
+      return current?.error;
+    },
+
+    /**
+     * Clears the error state and triggers a recomputation.
+     * Useful for manual error recovery.
+     *
+     * @example
+     * ```typescript
+     * const a = signal(() => riskyOperation());
+     * if (a.hasError()) {
+     *   a.clearError(); // Will trigger recomputation
+     * }
+     * ```
+     */
+    clearError(): void {
+      if (current && "error" in current && current.error !== undefined) {
+        current = undefined;
+        recompute();
+      }
     },
   });
 

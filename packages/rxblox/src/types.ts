@@ -172,7 +172,7 @@ export type Signal<T> = {
    * @param listener - Function to call when the signal value changes
    * @returns An unsubscribe function to remove the listener
    */
-  on(listener: (value: T) => void): VoidFunction;
+  on(listener: VoidFunction): VoidFunction;
 
   /**
    * Returns the current signal value as a JSON-serializable value.
@@ -231,6 +231,56 @@ export type Signal<T> = {
    * ```
    */
   readonly proxy: T extends object | Function ? Readonly<T> : never;
+
+  /**
+   * Checks if the signal has an error without throwing it.
+   * Useful for conditional error handling.
+   *
+   * @returns true if the signal computation resulted in an error
+   *
+   * @example
+   * ```typescript
+   * const a = signal(() => riskyOperation());
+   * const b = signal(() => {
+   *   if (a.hasError()) return 0; // Fallback value
+   *   return a() * 2;
+   * });
+   * ```
+   */
+  hasError(): boolean;
+
+  /**
+   * Gets the error from the last failed computation without throwing it.
+   * Returns undefined if there is no error.
+   *
+   * @returns The error from the last computation, or undefined
+   *
+   * @example
+   * ```typescript
+   * const a = signal(() => riskyOperation());
+   * try {
+   *   a();
+   * } catch (e) {
+   *   const error = a.getError();
+   *   console.error('Signal failed:', error);
+   * }
+   * ```
+   */
+  getError(): unknown;
+
+  /**
+   * Clears the error state and triggers a recomputation.
+   * Useful for manual error recovery.
+   *
+   * @example
+   * ```typescript
+   * const a = signal(() => riskyOperation());
+   * if (a.hasError()) {
+   *   a.clearError(); // Will trigger recomputation
+   * }
+   * ```
+   */
+  clearError(): void;
 
   persistInfo: PersistInfo;
 };
@@ -445,7 +495,7 @@ export type SignalFactory = <T>(value: T | (() => T)) => MutableSignal<T>;
  */
 export type EffectFactory = (fn: () => void | VoidFunction) => Effect;
 
-export type Subscribable<T = unknown> = {
+export type Subscribable<T = void> = {
   on(listener: (value: T) => void): VoidFunction;
 };
 

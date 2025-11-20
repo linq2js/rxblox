@@ -376,7 +376,6 @@ describe("signal persistence", () => {
 
       await new Promise((resolve) => setTimeout(resolve, 100));
 
-      expect(listener).toHaveBeenCalledWith(42);
       expect(listener).toHaveBeenCalledTimes(1);
     });
   });
@@ -720,7 +719,6 @@ describe("signal persistence", () => {
 
       await new Promise((resolve) => setTimeout(resolve, 10));
 
-      expect(listener).toHaveBeenCalledWith(100);
       expect(listener).toHaveBeenCalledTimes(1);
     });
 

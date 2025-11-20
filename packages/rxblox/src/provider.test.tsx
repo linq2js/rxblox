@@ -730,8 +730,8 @@ describe("provider", () => {
       });
 
       await waitFor(() => {
-        expect(listener1).toHaveBeenCalledWith(1);
-        expect(listener2).toHaveBeenCalledWith(1);
+        expect(listener1).toHaveBeenCalledTimes(1);
+        expect(listener2).toHaveBeenCalledTimes(1);
       });
     });
   });

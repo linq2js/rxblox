@@ -9,11 +9,7 @@ import {
 } from "react";
 import { MutableSignal, Signal } from "./types";
 import { isSignal, signal } from "./signal";
-import {
-  dispatcherToken,
-  getDispatcher,
-  getContextType,
-} from "./dispatcher";
+import { dispatcherToken, getDispatcher, getContextType } from "./dispatcher";
 import { trackingToken } from "./trackingDispatcher";
 
 /**
@@ -85,15 +81,18 @@ function ProviderContainer<T>(
           // Temporarily clear context to allow signal creation
           // Provider signals are created once and stored, not recreated on every render
           // Clear context type to prevent rx() validation errors
-          currentSignal = trackingToken.without(() => {
-            const initialValue =
-              typeof currentValue === "function"
-                ? () => currentValue
-                : currentValue;
-            return signal(initialValue, {
-              equals: providerDefRef.current.equals,
-            });
-          }, { contextType: undefined });
+          currentSignal = trackingToken.without(
+            () => {
+              const initialValue =
+                typeof currentValue === "function"
+                  ? () => currentValue
+                  : currentValue;
+              return signal(initialValue, {
+                equals: providerDefRef.current.equals,
+              });
+            },
+            { contextType: undefined }
+          );
         }
         return currentSignal;
       },
@@ -130,9 +129,10 @@ function ProviderContainer<T>(
 
   useLayoutEffect(() => {
     if (isSignal<T>(props.value)) {
+      const valueSignal = props.value;
       // No need to set initial value - it was already captured with .peek()
       // Just set up the subscription for future changes
-      return props.value.on((value) => providerInstance.setValue(value));
+      return valueSignal.on(() => providerInstance.setValue(valueSignal()));
     }
     providerInstance.setValue(props.value);
   }, [providerInstance, props.value]);
@@ -255,7 +255,7 @@ export function provider<T>(
         "See: https://github.com/linq2js/rxblox#best-practices"
     );
   }
-  
+
   if (contextType === "batch") {
     throw new Error(
       "Cannot create providers inside batch() blocks. " +

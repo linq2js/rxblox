@@ -239,7 +239,9 @@ export function action<TResult = void, TArgs extends readonly any[] = any[]>(
 
   // Add reset method
   Object.assign(dispatch, {
-    on: result.on,
+    on(listener: (value: Loadable<Awaited<TResult>> | undefined) => void) {
+      return result.on(() => listener(result()));
+    },
     reset() {
       result.reset();
       cleanup();

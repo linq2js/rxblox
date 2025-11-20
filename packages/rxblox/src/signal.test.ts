@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { signal, SignalOptions } from "./signal";
+import { batch } from "./batch";
 
 describe("signal", () => {
   describe("basic functionality", () => {
@@ -25,7 +26,6 @@ describe("signal", () => {
       s.on(listener);
 
       s.set(1);
-      expect(listener).toHaveBeenCalledWith(1);
       expect(listener).toHaveBeenCalledTimes(1);
     });
 
@@ -65,8 +65,8 @@ describe("signal", () => {
       s.on(listener2);
 
       s.set(1);
-      expect(listener1).toHaveBeenCalledWith(1);
-      expect(listener2).toHaveBeenCalledWith(1);
+      expect(listener1).toHaveBeenCalledTimes(1);
+      expect(listener2).toHaveBeenCalledTimes(1);
     });
 
     it("should allow unsubscribing from listeners", () => {
@@ -94,9 +94,9 @@ describe("signal", () => {
       const s = signal(0);
       const calls: number[] = [];
 
-      s.on((val) => calls.push(val * 1));
-      s.on((val) => calls.push(val * 2));
-      s.on((val) => calls.push(val * 3));
+      s.on(() => calls.push(s() * 1));
+      s.on(() => calls.push(s() * 2));
+      s.on(() => calls.push(s() * 3));
 
       s.set(1);
       expect(calls).toEqual([1, 2, 3]);
@@ -140,7 +140,7 @@ describe("signal", () => {
       computed.on(listener);
 
       source.set(10);
-      expect(listener).toHaveBeenCalledWith(20);
+      expect(listener).toHaveBeenCalledTimes(1);
 
       listener.mockClear();
       computed.reset();
@@ -149,7 +149,7 @@ describe("signal", () => {
       // This means reset() always notifies listeners, even if value is same
       // This is the intended behavior - reset forces a recomputation and notification
       expect(computed()).toBe(20);
-      expect(listener).toHaveBeenCalledWith(20);
+      expect(listener).toHaveBeenCalledTimes(1);
     });
 
     it("should reset and notify listeners", () => {
@@ -169,7 +169,7 @@ describe("signal", () => {
       expect(computed()).toBe(10);
       // Reset always notifies because cache is cleared (prev is undefined)
       // So !prev is true, which means onChange.emit() is called
-      expect(listener).toHaveBeenCalledWith(10);
+      expect(listener).toHaveBeenCalledTimes(1);
     });
 
     it("should reset and recompute with updated dependencies", () => {
@@ -290,7 +290,7 @@ describe("signal", () => {
 
       // Different id - should notify
       s.set({ id: 2, name: "Bob" });
-      expect(listener).toHaveBeenCalledWith({ id: 2, name: "Bob" });
+      expect(listener).toHaveBeenCalledTimes(1);
     });
 
     it("should default to Object.is for equality", () => {
@@ -353,7 +353,8 @@ describe("signal", () => {
       const s = signal(0);
       const calls: number[] = [];
 
-      s.on((val) => {
+      s.on(() => {
+        const val = s();
         calls.push(val);
         if (val === 1) {
           // Add another listener during notification
@@ -512,7 +513,6 @@ describe("signal", () => {
 
       // Should only notify once from the actual change
       expect(listener).toHaveBeenCalledTimes(1);
-      expect(listener).toHaveBeenCalledWith(20);
     });
   });
 
@@ -604,8 +604,9 @@ describe("signal", () => {
       const source = signal(1);
       let fetchAborted = false;
 
-      global.fetch = vi.fn().mockImplementation(
-        (_url: string, options?: RequestInit) => {
+      global.fetch = vi
+        .fn()
+        .mockImplementation((_url: string, options?: RequestInit) => {
           return new Promise((resolve, reject) => {
             options?.signal?.addEventListener("abort", () => {
               fetchAborted = true;
@@ -614,8 +615,7 @@ describe("signal", () => {
             // Simulate async operation
             setTimeout(() => resolve({ json: () => Promise.resolve({}) }), 100);
           });
-        }
-      );
+        });
 
       const computed = signal(({ abortSignal }) => {
         const id = source();
@@ -908,6 +908,536 @@ describe("signal", () => {
         const s = signal(() => 42);
         s(); // Trigger computation
       }).not.toThrow();
+    });
+  });
+
+  describe("error handling and propagation", () => {
+    it("should store error when computation fails", () => {
+      const a = signal(() => {
+        throw new Error("Computation failed");
+      });
+
+      expect(() => a()).toThrow("Computation failed");
+      expect(a.hasError()).toBe(true);
+      expect(a.getError()).toBeInstanceOf(Error);
+      expect((a.getError() as Error).message).toBe("Computation failed");
+    });
+
+    it("should throw cached error on subsequent reads", () => {
+      let callCount = 0;
+      const a = signal(() => {
+        callCount++;
+        throw new Error("Fail");
+      });
+
+      // First read
+      expect(() => a()).toThrow("Fail");
+      expect(callCount).toBe(1);
+
+      // Second read - should throw cached error without recomputing
+      expect(() => a()).toThrow("Fail");
+      expect(callCount).toBe(1); // Should not recompute
+    });
+
+    it("should propagate error to derived signals", () => {
+      const a = signal(() => {
+        throw new Error("A failed");
+      });
+      const b = signal(() => a() * 2);
+      const c = signal(() => b() + 10);
+
+      // Reading any signal in the chain should throw
+      expect(() => c()).toThrow("A failed");
+      expect(a.hasError()).toBe(true);
+      expect(b.hasError()).toBe(true);
+      expect(c.hasError()).toBe(true);
+    });
+
+    it("should trigger recomputation of derived signals when dependency fails", () => {
+      const trigger = signal(0);
+      let aThrows = true;
+      const a = signal(() => {
+        trigger(); // Create dependency
+        if (aThrows) throw new Error("A failed");
+        return 5;
+      });
+
+      let bCallCount = 0;
+      const b = signal(() => {
+        bCallCount++;
+        return a() * 2;
+      });
+
+      // First read - b tries to compute and fails
+      expect(() => b()).toThrow("A failed");
+      expect(bCallCount).toBe(1);
+      expect(b.hasError()).toBe(true);
+
+      // Fix the error and trigger recomputation
+      aThrows = false;
+      trigger.set(1);
+
+      expect(a()).toBe(5);
+
+      // b should have recomputed automatically
+      expect(b()).toBe(10);
+      expect(bCallCount).toBe(2);
+      expect(b.hasError()).toBe(false);
+    });
+
+    it("should recover from error when recomputation succeeds", () => {
+      const trigger = signal(0);
+      let shouldThrow = true;
+      const a = signal(() => {
+        trigger(); // Create dependency
+        if (shouldThrow) throw new Error("Fail");
+        return 42;
+      });
+
+      expect(() => a()).toThrow("Fail");
+      expect(a.hasError()).toBe(true);
+
+      // Fix and trigger recomputation
+      shouldThrow = false;
+      trigger.set(1);
+      const result = a();
+
+      expect(result).toBe(42);
+      expect(a.hasError()).toBe(false);
+      expect(a.getError()).toBeUndefined();
+    });
+
+    it("should allow error inspection without throwing", () => {
+      const a = signal(() => {
+        throw new Error("Test error");
+      });
+
+      // Trigger error
+      expect(() => a()).toThrow("Test error");
+
+      // Inspect error without throwing
+      expect(a.hasError()).toBe(true);
+      expect(a.getError()).toBeInstanceOf(Error);
+      expect((a.getError() as Error).message).toBe("Test error");
+    });
+
+    it("should allow graceful error handling with hasError()", () => {
+      const a = signal(() => {
+        throw new Error("Source failed");
+      });
+      const b = signal(() => {
+        if (a.hasError()) return 0; // Fallback value
+        return a() * 2;
+      });
+
+      // Trigger error in a
+      expect(() => a()).toThrow("Source failed");
+
+      // b should return fallback without throwing
+      expect(b()).toBe(0);
+      expect(b.hasError()).toBe(false);
+    });
+
+    it("should clear error manually with clearError()", () => {
+      const trigger = signal(0);
+      let shouldThrow = true;
+      const a = signal(() => {
+        trigger(); // Create dependency
+        if (shouldThrow) throw new Error("Fail");
+        return 42;
+      });
+
+      expect(() => a()).toThrow("Fail");
+      expect(a.hasError()).toBe(true);
+
+      // Clear error manually
+      shouldThrow = false;
+      a.clearError();
+
+      expect(a.hasError()).toBe(false);
+      expect(a()).toBe(42);
+    });
+
+    it("should handle error in peek() method", () => {
+      const a = signal(() => {
+        throw new Error("Peek failed");
+      });
+
+      expect(() => a.peek()).toThrow("Peek failed");
+      expect(a.hasError()).toBe(true);
+    });
+
+    it("should preserve error state across batches", () => {
+      const a = signal(() => {
+        throw new Error("A failed");
+      });
+      const b = signal(1);
+      const c = signal(() => a() + b());
+
+      // Trigger error
+      expect(() => c()).toThrow("A failed");
+
+      // Change b in a batch
+      batch(() => {
+        b.set(2);
+      });
+
+      // c should still have error after batch
+      expect(() => c()).toThrow("A failed");
+      expect(c.hasError()).toBe(true);
+    });
+
+    it("should not return stale value when error is cached", () => {
+      let shouldThrow = false;
+      const trigger = signal(0);
+      const a = signal(() => {
+        trigger(); // Create dependency
+        if (shouldThrow) throw new Error("Now failing");
+        return 100;
+      });
+
+      // Initial successful read
+      expect(a()).toBe(100);
+      expect(a.hasError()).toBe(false);
+
+      // Cause error and trigger recomputation
+      shouldThrow = true;
+      trigger.set(1);
+
+      expect(() => a()).toThrow("Now failing");
+
+      // Should throw error, not return stale value (100)
+      expect(() => a()).toThrow("Now failing");
+      expect(a.hasError()).toBe(true);
+    });
+
+    it("should propagate error through multiple levels", () => {
+      const trigger = signal(0);
+      const a = signal(() => {
+        trigger();
+        throw new Error("Level 1");
+      });
+      const b = signal(() => a() * 2);
+      const c = signal(() => b() + 10);
+      const d = signal(() => c() * 3);
+
+      // All levels should fail
+      expect(() => d()).toThrow("Level 1");
+      expect(a.hasError()).toBe(true);
+      expect(b.hasError()).toBe(true);
+      expect(c.hasError()).toBe(true);
+      expect(d.hasError()).toBe(true);
+
+      // All errors should be the same
+      expect(a.getError()).toBeInstanceOf(Error);
+      expect((a.getError() as Error).message).toBe("Level 1");
+      expect(b.getError()).toBe(a.getError());
+      expect(c.getError()).toBe(a.getError());
+      expect(d.getError()).toBe(a.getError());
+    });
+
+    it("should handle mixed success and error dependencies", () => {
+      const success = signal(10);
+      const failure = signal(() => {
+        throw new Error("Failed");
+      });
+
+      const mixed = signal(() => {
+        try {
+          return success() + failure();
+        } catch (e) {
+          return success(); // Use fallback
+        }
+      });
+
+      expect(mixed()).toBe(10);
+      expect(mixed.hasError()).toBe(false);
+    });
+
+    it("should recover entire dependency chain when error is fixed", () => {
+      const trigger = signal(0);
+      let shouldFail = true;
+
+      const a = signal(() => {
+        trigger();
+        if (shouldFail) throw new Error("Source error");
+        return 5;
+      });
+      const b = signal(() => a() * 2);
+      const c = signal(() => b() + 10);
+
+      // All fail initially
+      expect(() => c()).toThrow("Source error");
+      expect(a.hasError()).toBe(true);
+      expect(b.hasError()).toBe(true);
+      expect(c.hasError()).toBe(true);
+
+      // Fix the error
+      shouldFail = false;
+      trigger.set(1);
+
+      // Entire chain should recover
+      expect(c()).toBe(20); // (5 * 2) + 10
+      expect(a.hasError()).toBe(false);
+      expect(b.hasError()).toBe(false);
+      expect(c.hasError()).toBe(false);
+    });
+
+    it("should handle errors with multiple dependencies", () => {
+      const trigger = signal(0);
+      let aFails = true;
+      let bFails = false;
+
+      const a = signal(() => {
+        trigger();
+        if (aFails) throw new Error("A failed");
+        return 1;
+      });
+
+      const b = signal(() => {
+        trigger();
+        if (bFails) throw new Error("B failed");
+        return 2;
+      });
+
+      const c = signal(() => a() + b());
+
+      // c fails because a fails
+      expect(() => c()).toThrow("A failed");
+      expect(c.hasError()).toBe(true);
+
+      // Fix a, but b now fails
+      aFails = false;
+      bFails = true;
+      trigger.set(1);
+
+      // c should now fail because of b
+      expect(() => c()).toThrow("B failed");
+      expect(c.hasError()).toBe(true);
+
+      // Fix both
+      bFails = false;
+      trigger.set(2);
+
+      // c should succeed
+      expect(c()).toBe(3);
+      expect(c.hasError()).toBe(false);
+    });
+
+    it("should handle conditional dependencies with errors", () => {
+      const useA = signal(true);
+      const a = signal(() => {
+        throw new Error("A error");
+      });
+      const b = signal(10);
+
+      const conditional = signal(() => {
+        if (useA()) {
+          try {
+            return a();
+          } catch {
+            return 0;
+          }
+        }
+        return b();
+      });
+
+      // Using a (with error handling)
+      expect(conditional()).toBe(0);
+
+      // Switch to b
+      useA.set(false);
+      expect(conditional()).toBe(10);
+      expect(conditional.hasError()).toBe(false);
+    });
+
+    it("should handle error in batch context", async () => {
+      const trigger = signal(0);
+      let shouldFail = false;
+      const a = signal(() => {
+        trigger();
+        if (shouldFail) throw new Error("Batch error");
+        return 1;
+      });
+      const b = signal(() => a() * 2);
+
+      // Read once to establish dependencies
+      expect(b()).toBe(2);
+
+      let listenerCallCount = 0;
+      b.on(() => listenerCallCount++);
+
+      // Trigger error in batch
+      batch(() => {
+        shouldFail = true;
+        trigger.set(1);
+      });
+
+      // Wait for post-batch recomputation
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      // Should have error
+      expect(() => b()).toThrow("Batch error");
+      expect(b.hasError()).toBe(true);
+      expect(listenerCallCount).toBe(1); // Should only notify once despite batch
+    });
+
+    it("should handle diamond dependency with error", () => {
+      const root = signal(() => {
+        throw new Error("Root error");
+      });
+
+      const left = signal(() => root() * 2);
+      const right = signal(() => root() * 3);
+      const bottom = signal(() => left() + right());
+
+      // When bottom tries to compute, it will trigger left and right,
+      // which will both try to read root, which throws
+      expect(() => bottom()).toThrow("Root error");
+
+      // All signals in the chain should have the error
+      expect(root.hasError()).toBe(true);
+      expect(left.hasError()).toBe(true);
+      expect(right.hasError()).toBe(true);
+      expect(bottom.hasError()).toBe(true);
+
+      // All should have the same error
+      const rootError = root.getError();
+      expect(rootError).toBeInstanceOf(Error);
+      expect((rootError as Error).message).toBe("Root error");
+      expect(left.getError()).toBe(rootError);
+      expect(right.getError()).toBe(rootError);
+      expect(bottom.getError()).toBe(rootError);
+    });
+
+    it("should not create dependencies when checking hasError", () => {
+      const a = signal(1);
+      let bComputeCount = 0;
+
+      const b = signal(() => {
+        bComputeCount++;
+        return a() * 2;
+      });
+
+      // Read b once
+      expect(b()).toBe(2);
+      expect(bComputeCount).toBe(1);
+
+      // Check hasError should not create dependency or trigger recomputation
+      expect(b.hasError()).toBe(false);
+      expect(bComputeCount).toBe(1); // Should not recompute
+
+      // Change a - b should recompute only from the dependency, not hasError
+      a.set(5);
+      expect(b()).toBe(10);
+      expect(bComputeCount).toBe(2);
+    });
+
+    it("should handle getError without triggering recomputation on error", () => {
+      const trigger = signal(0);
+      let computeCount = 0;
+
+      const a = signal(() => {
+        trigger();
+        computeCount++;
+        throw new Error("Test");
+      });
+
+      // Trigger computation
+      expect(() => a()).toThrow("Test");
+      expect(computeCount).toBe(1);
+
+      // Get error multiple times - should not recompute
+      expect(a.getError()).toBeInstanceOf(Error);
+      expect(a.getError()).toBeInstanceOf(Error);
+      expect(computeCount).toBe(1);
+
+      // Check hasError - should not recompute
+      expect(a.hasError()).toBe(true);
+      expect(computeCount).toBe(1);
+    });
+
+    it("should handle clearError triggering listener notification", () => {
+      const trigger = signal(0);
+      let shouldFail = true;
+      const a = signal(() => {
+        trigger();
+        if (shouldFail) throw new Error("Fail");
+        return 42;
+      });
+
+      // Establish the signal first
+      expect(() => a()).toThrow("Fail");
+
+      let notifyCount = 0;
+      a.on(() => notifyCount++);
+
+      // Clear error and fix
+      shouldFail = false;
+      a.clearError();
+
+      expect(a()).toBe(42);
+      expect(notifyCount).toBe(1); // Notified of successful recomputation
+      expect(a.hasError()).toBe(false);
+    });
+
+    it("should preserve error type and stack trace", () => {
+      class CustomError extends Error {
+        code = "CUSTOM_ERROR";
+      }
+
+      const a = signal(() => {
+        throw new CustomError("Custom message");
+      });
+
+      expect(() => a()).toThrow(CustomError);
+      expect(a.getError()).toBeInstanceOf(CustomError);
+      expect((a.getError() as CustomError).code).toBe("CUSTOM_ERROR");
+      expect((a.getError() as CustomError).message).toBe("Custom message");
+      expect((a.getError() as Error).stack).toBeDefined();
+    });
+
+    it("should handle non-Error throws", () => {
+      const a = signal(() => {
+        throw "string error";
+      });
+
+      const b = signal(() => {
+        throw { code: 404, message: "Not found" };
+      });
+
+      const c = signal(() => {
+        // eslint-disable-next-line no-throw-literal
+        throw null;
+      });
+
+      expect(() => a()).toThrow("string error");
+      expect(a.hasError()).toBe(true);
+      expect(a.getError()).toBe("string error");
+
+      let bThrew = false;
+      try {
+        b();
+      } catch (e) {
+        bThrew = true;
+        expect(e).toEqual({ code: 404, message: "Not found" });
+      }
+      expect(bThrew).toBe(true);
+      expect(b.hasError()).toBe(true);
+      expect(b.getError()).toEqual({ code: 404, message: "Not found" });
+
+      let cThrew = false;
+      let cError;
+      try {
+        c();
+      } catch (e) {
+        cThrew = true;
+        cError = e;
+      }
+      expect(cThrew).toBe(true);
+      expect(cError).toBe(null);
+      expect(c.hasError()).toBe(true);
+      expect(c.getError()).toBe(null);
     });
   });
 });
