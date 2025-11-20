@@ -557,57 +557,70 @@ function waitTimeoutAwaitable(
   ]);
 }
 
+export type WaitFallbackResult<T, F> =
+  | [result: AwaitedOrSignalValue<T>, error: undefined]
+  | [result: F, error: unknown];
+
 /**
  * Executes a function and returns a tuple of [result, error].
  * If the function throws or returns a rejected promise, returns the fallback value.
  *
- * @param fn - The function to execute
- * @param fallback - The fallback value or factory function
+ * This is useful for error handling in reactive contexts where you want to provide
+ * a default value instead of propagating errors.
+ *
+ * @param fn - The function to execute (can be sync or return a promise/signal)
+ * @param fallback - The fallback value or factory function to use on error
  * @returns Tuple of [result, error] where error is undefined on success
  *
  * @example
  * ```typescript
- * const [data, error] = await wait.fallback(
- *   () => fetchUser(id),
- *   { name: 'Guest' }
+ * // With async signal
+ * const userSignal = asyncSignal(() => fetchUser(id));
+ * const [user, error] = wait.fallback(
+ *   () => userSignal,
+ *   { name: 'Guest', id: 0 }
  * );
  *
- * if (error) {
- *   console.error('Failed to fetch user:', error);
- * }
+ * // With promise
+ * const [data, error] = wait.fallback(
+ *   () => fetch('/api/data').then(r => r.json()),
+ *   []
+ * );
+ *
+ * // With fallback factory
+ * const [result, error] = wait.fallback(
+ *   () => riskyOperation(),
+ *   () => computeDefaultValue()
+ * );
  * ```
  */
-async function waitFallback<T, F>(
-  fn: () => T | PromiseLike<T>,
+function waitFallback<T, F>(
+  fn: () => T,
   fallback: F | (() => F)
-): Promise<[Awaited<T> | Awaited<F>, unknown]> {
+): WaitFallbackResult<T, F> {
   try {
+    // Execute the function
     const result = fn();
-    if (isPromiseLike(result)) {
-      try {
-        const awaited = await result;
-        return [awaited, undefined];
-      } catch (error) {
-        const fallbackValue =
-          typeof fallback === "function" ? (fallback as () => F)() : fallback;
-        return [
-          (isPromiseLike(fallbackValue)
-            ? await fallbackValue
-            : fallbackValue) as Awaited<F>,
-          error,
-        ];
-      }
+
+    // If result is a loadable or promise, wait for it using waitAll
+    // This will throw if the promise rejects or loadable contains an error
+    if (isPromiseLike(result) || isLoadable(result)) {
+      const awaitedResult = waitAll(result);
+      return [awaitedResult, undefined] as const;
     }
-    return [result as Awaited<T>, undefined];
+
+    // Synchronous success - return result with no error
+    return [result as AwaitedOrSignalValue<T>, undefined] as const;
   } catch (error) {
-    const fallbackValue =
-      typeof fallback === "function" ? (fallback as () => F)() : fallback;
-    return [
-      (isPromiseLike(fallbackValue)
-        ? await fallbackValue
-        : fallbackValue) as Awaited<F>,
-      error,
-    ];
+    // Error occurred (either sync throw or promise/loadable rejection caught by waitAll)
+    // Compute fallback value (calling factory if needed)
+    const fallbackResult =
+      typeof fallback === "function"
+        ? (fallback as () => F)()
+        : (fallback as AwaitedOrSignalValue<F>);
+
+    // Return fallback value with the error
+    return [fallbackResult as F, error as unknown] as const;
   }
 }
 
@@ -790,10 +803,13 @@ function waitTimeout(
  *   // With timeout
  *   const user = wait.timeout(userSignal, 5000);
  *
- *   // With fallback
- *   const [user, error] = await wait.fallback(() => fetchUser(), defaultUser);
+ *   // With fallback - error handling with default values
+ *   const [user, error] = wait.fallback(
+ *     () => userSignal,
+ *     { name: 'Guest', id: 0 }
+ *   );
  *
- *   // Wait until condition
+ *   // Wait until condition is met
  *   const count = wait.until(counterSignal, c => c > 10);
  * });
  * ```

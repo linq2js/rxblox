@@ -71,50 +71,129 @@ describe("wait.timeout", () => {
 });
 
 describe("wait.fallback", () => {
-  it("should return result and undefined error on success", async () => {
-    const [result, error] = await wait.fallback(() => 42, 0);
+  it("should return result and undefined error on success", () => {
+    const [result, error] = wait.fallback(() => 42, 0);
     expect(result).toBe(42);
     expect(error).toBeUndefined();
   });
 
-  it("should return fallback and error on failure", async () => {
+  it("should return fallback and error on sync failure", () => {
     const err = new Error("Failed");
-    const [result, error] = await wait.fallback(() => {
+    const [result, error] = wait.fallback(() => {
       throw err;
     }, 99);
     expect(result).toBe(99);
     expect(error).toBe(err);
   });
 
-  it("should handle promise success", async () => {
-    const [result, error] = await wait.fallback(() => Promise.resolve(42), 0);
+  it("should handle async signal success", async () => {
+    const dataSignal = asyncSignal(async () => 42);
+
+    // Wait for signal to resolve
+    while (dataSignal().status === "loading") {
+      await delay(10);
+    }
+
+    // Call the signal to get the loadable
+    const [result, error] = wait.fallback(() => dataSignal(), 0);
     expect(result).toBe(42);
     expect(error).toBeUndefined();
   });
 
-  it("should handle promise rejection", async () => {
+  it("should handle async signal error", async () => {
     const err = new Error("Failed");
-    const [result, error] = await wait.fallback(() => Promise.reject(err), 99);
+    const dataSignal = asyncSignal(async () => {
+      throw err;
+    });
+
+    // Wait for signal to error
+    while (dataSignal().status === "loading") {
+      await delay(10);
+    }
+
+    // Call the signal to get the loadable
+    const [result, error] = wait.fallback(() => dataSignal(), 99);
     expect(result).toBe(99);
     expect(error).toBe(err);
   });
 
-  it("should call fallback factory on error", async () => {
+  it("should handle promise success via asyncSignal", async () => {
+    const promiseSignal = asyncSignal(() => Promise.resolve(42));
+
+    // Wait for signal to resolve
+    while (promiseSignal().status === "loading") {
+      await delay(10);
+    }
+
+    // Call the signal to get the loadable
+    const [result, error] = wait.fallback(() => promiseSignal(), 0);
+    expect(result).toBe(42);
+    expect(error).toBeUndefined();
+  });
+
+  it("should handle promise rejection via asyncSignal", async () => {
+    const err = new Error("Failed");
+    const promiseSignal = asyncSignal(() => Promise.reject(err));
+
+    // Wait for signal to error
+    while (promiseSignal().status === "loading") {
+      await delay(10);
+    }
+
+    // Call the signal to get the loadable
+    const [result, error] = wait.fallback(() => promiseSignal(), 99);
+    expect(result).toBe(99);
+    expect(error).toBe(err);
+  });
+
+  it("should call fallback factory on error", () => {
     const factory = vi.fn(() => 99);
-    const [result, error] = await wait.fallback(() => {
+    const [result, error] = wait.fallback(() => {
       throw new Error("Failed");
     }, factory);
+
     expect(result).toBe(99);
     expect(factory).toHaveBeenCalled();
     expect(error).toBeInstanceOf(Error);
   });
 
-  it("should handle async fallback", async () => {
-    const [result, error] = await wait.fallback(() => {
-      throw new Error("Failed");
-    }, Promise.resolve(99));
-    expect(result).toBe(99);
+  it("should work with signal returning a value", async () => {
+    const userSignal = asyncSignal(async () => ({ name: "John", id: 1 }));
+
+    // Wait for signal to resolve
+    while (userSignal().status === "loading") {
+      await delay(10);
+    }
+
+    // Call the signal to get the loadable
+    const [user, error] = wait.fallback(() => userSignal(), {
+      name: "Guest",
+      id: 0,
+    });
+
+    expect(user).toEqual({ name: "John", id: 1 });
+    expect(error).toBeUndefined();
+  });
+
+  it("should use fallback when signal errors", async () => {
+    const userSignal = asyncSignal(async () => {
+      throw new Error("Network error");
+    });
+
+    // Wait for signal to error
+    while (userSignal().status === "loading") {
+      await delay(10);
+    }
+
+    // Call the signal to get the loadable
+    const [user, error] = wait.fallback(() => userSignal(), {
+      name: "Guest",
+      id: 0,
+    });
+
+    expect(user).toEqual({ name: "Guest", id: 0 });
     expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe("Network error");
   });
 });
 
