@@ -104,13 +104,19 @@ function resolveAwaitable(awaitable: Awaitable<unknown>): Loadable<any> {
  * Throws the error if any failed.
  * Returns unwrapped value(s) if all succeeded.
  *
+ * ⚠️ IMPORTANT: Use cached signals/loadables. Dynamic promise creation causes infinite loops.
+ *
  * @example
  * ```typescript
- * // Single value
+ * // ✅ CORRECT: Use cached signals
+ * const userSignal = asyncSignal(() => fetchUser());
  * const user = wait(userSignal);
  *
- * // Multiple values
+ * // ✅ CORRECT: Multiple cached signals
  * const [user, posts] = wait([userSignal, postsSignal]);
+ *
+ * // ❌ WRONG: Creating promises dynamically
+ * const user = wait(fetchUser()); // Infinite loop!
  * ```
  */
 function waitAll(awaitable: Awaitable<unknown>): any;
@@ -160,8 +166,15 @@ function waitAll(awaitableOrArray: any): any {
  * Returns [value, key] tuple indicating which succeeded first.
  * Only throws if ALL awaitables fail.
  *
+ * ⚠️ IMPORTANT: Use cached signals/loadables. Dynamic promise creation causes infinite loops.
+ *
  * @example
  * ```typescript
+ * // ✅ CORRECT: Use cached signals
+ * const cacheSignal = asyncSignal(() => fetchFromCache());
+ * const apiSignal = asyncSignal(() => fetchFromApi());
+ * const backupSignal = asyncSignal(() => fetchFromBackup());
+ *
  * const [data, source] = wait.any({
  *   cache: cacheSignal,
  *   api: apiSignal,
@@ -231,8 +244,15 @@ function waitAny(awaitables: Record<string, Awaitable<unknown>>): any {
  * Returns [value, key] tuple indicating which completed first.
  * Throws the error if the first completion was a failure.
  *
+ * ⚠️ IMPORTANT: Use cached signals/loadables. Dynamic promise creation causes infinite loops.
+ *
  * @example
  * ```typescript
+ * // ✅ CORRECT: Use cached signals
+ * const server1Signal = asyncSignal(() => fetchFromServer1());
+ * const server2Signal = asyncSignal(() => fetchFromServer2());
+ * const timeoutSignal = asyncSignal(() => delay(5000).then(() => 'timeout'));
+ *
  * const [data, fastest] = wait.race({
  *   server1: server1Signal,
  *   server2: server2Signal,
@@ -279,15 +299,21 @@ function waitRace(awaitables: Record<string, Awaitable<unknown>>): any {
  * Waits for all awaitables to settle (complete with success or error).
  * Never throws - returns PromiseSettledResult for each awaitable.
  *
+ * ⚠️ IMPORTANT: Use cached signals/loadables. Dynamic promise creation causes infinite loops.
+ *
  * @example
  * ```typescript
- * // Single value
+ * // ✅ CORRECT: Use cached signals
+ * const userSignal = asyncSignal(() => fetchUser());
  * const result = wait.settled(userSignal);
  * if (result.status === 'fulfilled') {
  *   console.log(result.value);
  * }
  *
- * // Multiple values
+ * // ✅ CORRECT: Multiple cached signals
+ * const sig1 = asyncSignal(() => fetch1());
+ * const sig2 = asyncSignal(() => fetch2());
+ * const sig3 = asyncSignal(() => fetch3());
  * const results = wait.settled([sig1, sig2, sig3]);
  * const successes = results.filter(r => r.status === 'fulfilled');
  * ```
@@ -377,6 +403,8 @@ export class TimeoutError extends Error {
  * Adds timeout to a single awaitable.
  * Throws TimeoutError if the awaitable doesn't resolve within the specified time.
  *
+ * ⚠️ IMPORTANT: Use cached signals/loadables. Dynamic promise creation causes infinite loops.
+ *
  * @param awaitable - The awaitable to add timeout to
  * @param ms - Timeout duration in milliseconds
  * @param error - Optional error message or error factory function
@@ -384,6 +412,8 @@ export class TimeoutError extends Error {
  *
  * @example
  * ```typescript
+ * // ✅ CORRECT: Use cached signal
+ * const userSignal = asyncSignal(() => fetchUser());
  * const user = wait.timeout(userSignal, 5000, 'User fetch timed out');
  * ```
  */
@@ -397,6 +427,8 @@ function waitTimeoutAwaitable<T>(
  * Adds timeout to an array of awaitables.
  * Throws TimeoutError if any awaitable doesn't resolve within the specified time.
  *
+ * ⚠️ IMPORTANT: Use cached signals/loadables. Dynamic promise creation causes infinite loops.
+ *
  * @param awaitables - Array of awaitables
  * @param ms - Timeout duration in milliseconds
  * @param error - Optional error message or error factory function
@@ -404,6 +436,9 @@ function waitTimeoutAwaitable<T>(
  *
  * @example
  * ```typescript
+ * // ✅ CORRECT: Use cached signals
+ * const userSignal = asyncSignal(() => fetchUser());
+ * const postsSignal = asyncSignal(() => fetchPosts());
  * const [user, posts] = wait.timeout([userSignal, postsSignal], 5000);
  * ```
  */
@@ -421,6 +456,8 @@ function waitTimeoutAwaitable<
  * Adds timeout to a record of awaitables.
  * Throws TimeoutError if any awaitable doesn't resolve within the specified time.
  *
+ * ⚠️ IMPORTANT: Use cached signals/loadables. Dynamic promise creation causes infinite loops.
+ *
  * @param awaitables - Record of awaitables
  * @param ms - Timeout duration in milliseconds
  * @param error - Optional error message or error factory function
@@ -428,6 +465,9 @@ function waitTimeoutAwaitable<
  *
  * @example
  * ```typescript
+ * // ✅ CORRECT: Use cached signals
+ * const userSignal = asyncSignal(() => fetchUser());
+ * const postsSignal = asyncSignal(() => fetchPosts());
  * const data = wait.timeout({ user: userSignal, posts: postsSignal }, 5000);
  * ```
  */
@@ -563,33 +603,43 @@ export type WaitFallbackResult<T, F> =
 
 /**
  * Executes a function and returns a tuple of [result, error].
- * If the function throws or returns a rejected promise, returns the fallback value.
+ * If the function throws or returns a rejected promise/loadable, returns the fallback value.
  *
  * This is useful for error handling in reactive contexts where you want to provide
  * a default value instead of propagating errors.
  *
- * @param fn - The function to execute (can be sync or return a promise/signal)
+ * ⚠️ IMPORTANT: The function must return a cached signal, loadable, or promise.
+ * Creating new promises dynamically will cause infinite loops since wait APIs throw promises.
+ *
+ * @param fn - The function to execute (must return cached signal/loadable/promise)
  * @param fallback - The fallback value or factory function to use on error
  * @returns Tuple of [result, error] where error is undefined on success
  *
  * @example
  * ```typescript
- * // With async signal
+ * // ✅ CORRECT: Use cached signals
  * const userSignal = asyncSignal(() => fetchUser(id));
  * const [user, error] = wait.fallback(
- *   () => userSignal,
+ *   () => userSignal(),
  *   { name: 'Guest', id: 0 }
  * );
  *
- * // With promise
+ * // ✅ CORRECT: Use cached loadables
+ * const dataLoadable = loadable(() => fetch('/api/data').then(r => r.json()));
  * const [data, error] = wait.fallback(
- *   () => fetch('/api/data').then(r => r.json()),
+ *   () => dataLoadable,
+ *   []
+ * );
+ *
+ * // ❌ WRONG: Creating promises dynamically causes infinite loops
+ * const [data, error] = wait.fallback(
+ *   () => fetch('/api/data'), // Creates new promise each time!
  *   []
  * );
  *
  * // With fallback factory
  * const [result, error] = wait.fallback(
- *   () => riskyOperation(),
+ *   () => cachedSignal(),
  *   () => computeDefaultValue()
  * );
  * ```
@@ -628,12 +678,15 @@ function waitFallback<T, F>(
  * Waits for a single awaitable until predicate returns true.
  * Re-throws the promise if predicate returns false.
  *
+ * ⚠️ IMPORTANT: Use cached signals/loadables. Dynamic promise creation causes infinite loops.
+ *
  * @param awaitable - The awaitable to wait for
  * @param predicate - Function that receives the unwrapped value and returns boolean
  * @returns The unwrapped value when predicate returns true
  *
  * @example
  * ```typescript
+ * // ✅ CORRECT: Use signal that updates over time
  * const count = signal(0);
  * const value = wait.until(count, (c) => c > 10);
  * ```
@@ -647,12 +700,17 @@ function waitUntil<T>(
  * Waits for an array of awaitables until predicate returns true.
  * Re-throws if predicate returns false.
  *
+ * ⚠️ IMPORTANT: Use cached signals/loadables. Dynamic promise creation causes infinite loops.
+ *
  * @param awaitables - Array of awaitables
  * @param predicate - Function that receives unwrapped values as arguments
  * @returns Array of unwrapped values when predicate returns true
  *
  * @example
  * ```typescript
+ * // ✅ CORRECT: Use cached signals
+ * const userSignal = asyncSignal(() => fetchUser());
+ * const postsSignal = asyncSignal(() => fetchPosts());
  * const [user, posts] = wait.until(
  *   [userSignal, postsSignal],
  *   (user, posts) => user.id > 0 && posts.length > 0
@@ -674,12 +732,17 @@ function waitUntil<const TAwaitables extends readonly Awaitable<unknown>[]>(
  * Waits for a record of awaitables until predicate returns true.
  * Re-throws if predicate returns false.
  *
+ * ⚠️ IMPORTANT: Use cached signals/loadables. Dynamic promise creation causes infinite loops.
+ *
  * @param awaitables - Record of awaitables
  * @param predicate - Function that receives unwrapped values as record
  * @returns Record of unwrapped values when predicate returns true
  *
  * @example
  * ```typescript
+ * // ✅ CORRECT: Use cached signals
+ * const userSignal = asyncSignal(() => fetchUser());
+ * const postsSignal = asyncSignal(() => fetchPosts());
  * const data = wait.until(
  *   { user: userSignal, posts: postsSignal },
  *   ({ user, posts }) => user.id > 0 && posts.length > 0
@@ -773,6 +836,9 @@ function waitTimeout(
 /**
  * Main wait function with variants for different async coordination patterns.
  *
+ * All wait APIs work with cached signals, loadables, or promises. They throw promises
+ * for React Suspense, so creating new promises dynamically will cause infinite loops.
+ *
  * - `wait()` or `wait.all()` - Wait for all (default)
  * - `wait.any()` - Wait for first success
  * - `wait.race()` - Wait for first completion
@@ -784,33 +850,35 @@ function waitTimeout(
  *
  * @example
  * ```typescript
+ * // ✅ CORRECT: Create cached signals outside the async function
+ * const userSig = asyncSignal(() => fetchUser());
+ * const postsSig = asyncSignal(() => fetchPosts());
+ * const cacheSig = asyncSignal(() => fetchFromCache());
+ * const apiSig = asyncSignal(() => fetchFromApi());
+ *
  * const data = signal.async(({ wait }) => {
  *   // Wait for all
  *   const [user, posts] = wait([userSig, postsSig]);
  *
  *   // First success
- *   const [data, source] = wait.any({ cache, api, backup });
- *
- *   // First complete
- *   const [result, fastest] = wait.race({ server1, server2 });
- *
- *   // All settled
- *   const results = wait.settled([sig1, sig2, sig3]);
- *
- *   // Never resolve (suspend indefinitely)
- *   wait.never();
+ *   const [data, source] = wait.any({ cache: cacheSig, api: apiSig });
  *
  *   // With timeout
- *   const user = wait.timeout(userSignal, 5000);
+ *   const user = wait.timeout(userSig, 5000);
  *
  *   // With fallback - error handling with default values
  *   const [user, error] = wait.fallback(
- *     () => userSignal,
+ *     () => userSig(),
  *     { name: 'Guest', id: 0 }
  *   );
  *
  *   // Wait until condition is met
  *   const count = wait.until(counterSignal, c => c > 10);
+ * });
+ *
+ * // ❌ WRONG: Creating promises dynamically causes infinite loops
+ * const data = signal.async(({ wait }) => {
+ *   const user = wait(fetchUser()); // Infinite loop!
  * });
  * ```
  */
