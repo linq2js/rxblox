@@ -176,14 +176,16 @@ Help make rxblox better:
 3. Choose your path:
    - **Prefer React patterns?** → [React-Compatible Hooks](./react-compatible-hooks.md)
    - **Want fine-grained control?** → [Core Concepts](./core-concepts.md) - Read sections 1-5
-4. [Common Patterns](./patterns.md#common-patterns)
+4. [Error Handling](./ERROR_HANDLING.md) - Error propagation and recovery
+5. [Common Patterns](./patterns.md#common-patterns)
 
 **Intermediate** (Building apps)
 
 1. [Organizing Signals](./patterns.md#organizing-signals)
 2. [Async Signals](./core-concepts.md#7-async-signals---signalasync)
-3. [Lifecycle & Cleanup](./lifecycle-cleanup.md)
-4. [API Reference](./api-reference.md) - Full reference
+3. [Error Handling](./ERROR_HANDLING.md) - Comprehensive error handling guide
+4. [Lifecycle & Cleanup](./lifecycle-cleanup.md)
+5. [API Reference](./api-reference.md) - Full reference
 
 **Advanced** (Optimizing & scaling)
 

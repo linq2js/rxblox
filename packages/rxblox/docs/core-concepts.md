@@ -5,6 +5,7 @@ This guide covers the fundamental building blocks of rxblox: signals, computed v
 ## Table of Contents
 
 - [1. Signals - Reactive State Primitives](#1-signals---reactive-state-primitives)
+  - [Error Handling in Signals](#error-handling-in-signals)
 - [2. Computed Signals - Derived State](#2-computed-signals---derived-state)
 - [3. Effects - Side Effects with Auto-Tracking](#3-effects---side-effects-with-auto-tracking)
 - [4. Reactive Expressions - rx()](#4-reactive-expressions---rx)
@@ -72,6 +73,143 @@ fetch('/api/data')
 ```
 
 See [Async Signals](#7-async-signals---signalasync) and [Loadable States](#9-loadable-states) for async handling.
+
+### Error Handling in Signals
+
+Signals automatically catch and store errors during computation:
+
+```tsx
+const count = signal(() => {
+  if (someInvalidState()) {
+    throw new Error("Invalid state");
+  }
+  return 42;
+});
+
+// Reading throws the cached error
+try {
+  count(); // Throws: "Invalid state"
+} catch (error) {
+  console.error(error);
+}
+```
+
+**Error inspection without throwing:**
+
+```tsx
+// Check if signal has error
+if (count.hasError()) {
+  // Get error without throwing
+  const error = count.getError();
+  console.error("Signal failed:", error);
+  
+  // Clear error and retry
+  count.clearError(); // Triggers recomputation
+}
+```
+
+**Error propagation:**
+
+Errors flow through the dependency graph:
+
+```tsx
+const a = signal(() => {
+  throw new Error("A failed");
+});
+
+const b = signal(() => a() * 2); // Depends on 'a'
+const c = signal(() => b() + 1);  // Depends on 'b'
+
+// All throw the same error
+a(); // Throws: "A failed"
+b(); // Throws: "A failed"
+c(); // Throws: "A failed"
+```
+
+**Graceful error handling with fallback:**
+
+```tsx
+const data = signal(
+  () => {
+    const result = riskyOperation();
+    if (!result) throw new Error("Failed");
+    return result;
+  },
+  {
+    fallback: (error) => {
+      console.warn("Using fallback:", error);
+      return defaultValue;
+    }
+  }
+);
+
+// Returns fallback value instead of throwing
+console.log(data()); // defaultValue
+```
+
+**When both computation and fallback fail:**
+
+```tsx
+import { FallbackError } from "rxblox";
+
+const problematic = signal(
+  () => {
+    throw new Error("Primary failed");
+  },
+  {
+    fallback: (error) => {
+      throw new Error("Fallback failed");
+    }
+  }
+);
+
+try {
+  problematic();
+} catch (error) {
+  if (error instanceof FallbackError) {
+    // Contains both errors + context
+    console.error("Original:", error.originalError);
+    console.error("Fallback:", error.fallbackError);
+    console.error("Context:", error.context);
+  }
+}
+```
+
+**Error recovery in UI:**
+
+```tsx
+const UserProfile = blox(() => {
+  const user = signal.async(() => fetchUser());
+  
+  return rx(() => {
+    if (user().status === "error") {
+      return (
+        <div>
+          <p>Failed to load user</p>
+          <button onClick={() => user.reset()}>Retry</button>
+        </div>
+      );
+    }
+    
+    return <div>{user().value.name}</div>;
+  });
+});
+```
+
+**Best Practices:**
+
+✅ **Do:**
+- Use `fallback` for expected errors with safe defaults
+- Use `hasError()` / `getError()` for error inspection
+- Use `clearError()` or `reset()` to retry failed operations
+- Handle `FallbackError` when both computation and fallback can fail
+
+❌ **Don't:**
+- Ignore errors (they propagate to dependent signals)
+- Use `try/catch` around signal reads in reactive contexts (breaks reactivity)
+- Forget that errors are cached (thrown on every read until cleared)
+
+See [API Reference - Error Handling](./api-reference.md#error-handling) for complete documentation.
 
 ## 2. Computed Signals - Derived State
 
@@ -1178,12 +1316,135 @@ const allResults = signal.async(async () => {
 });
 ```
 
+### `wait.timeout()` - Wait with timeout
+
+```tsx
+import { wait, TimeoutError } from "rxblox";
+
+// ⚠️ CRITICAL: Use cached signals/loadables only!
+const user = signal.async(() => fetchUser());
+
+// Wait up to 5 seconds
+const Component = blox(() => {
+  return rx(() => {
+    try {
+      const userData = wait.timeout(user, 5000);
+      return <div>{userData.name}</div>;
+    } catch (error) {
+      if (error instanceof TimeoutError) {
+        return <div>Request timed out!</div>;
+      }
+      throw error;
+    }
+  });
+});
+
+// With custom error message
+const userData = wait.timeout(user, 3000, "User fetch took too long");
+
+// Array of awaitables
+const [u, p] = wait.timeout([user, posts], 5000);
+
+// Record of awaitables
+const { userData, postsData } = wait.timeout(
+  { userData: user, postsData: posts },
+  5000
+);
+```
+
+### `wait.fallback()` - Error handling with fallback
+
+```tsx
+import { wait } from "rxblox";
+
+// ⚠️ CRITICAL: Use cached signals/loadables only!
+const data = signal.async(() => fetchData());
+
+const Component = blox(() => {
+  return rx(() => {
+    const [result, error] = wait.fallback(
+      () => data(),
+      { default: "No data available" }
+    );
+    
+    if (error) {
+      console.warn("Failed to load:", error);
+    }
+    
+    return <div>{JSON.stringify(result)}</div>;
+  });
+});
+
+// With fallback function
+const [result, error] = wait.fallback(
+  () => riskyOperation(),
+  () => {
+    console.warn("Using fallback");
+    return getDefaultValue();
+  }
+);
+```
+
+### `wait.until()` - Wait for condition
+
+```tsx
+import { wait } from "rxblox";
+
+// ⚠️ CRITICAL: Use cached signals only!
+const count = signal(0);
+const user = signal.async(() => fetchUser());
+
+// Wait until count > 5
+const Component = blox(() => {
+  return rx(() => {
+    const value = wait.until(count, (n) => n > 5);
+    return <div>Count reached: {value}</div>;
+  });
+});
+
+// Wait until user is admin
+const adminUser = wait.until(user, (u) => u.role === "admin");
+
+// Array with predicate
+const [c, n] = wait.until(
+  [count, name],
+  (c, n) => c > 0 && n.length > 0
+);
+
+// Record with predicate
+const { userData, postsData } = wait.until(
+  { userData: user, postsData: posts },
+  ({ userData, postsData }) => {
+    return userData.role === "admin" && postsData.length > 0;
+  }
+);
+```
+
+### `wait.never()` - Permanent Suspense
+
+```tsx
+import { wait } from "rxblox";
+
+// Suspend forever
+const Component = blox(() => {
+  return rx(() => {
+    if (featureDisabled) {
+      wait.never(); // Never resolves
+    }
+    return <div>Feature enabled</div>;
+  });
+});
+```
+
 **Key Features:**
 
 - 🔗 **Works with signals and promises** - Pass `Signal<Promise<T>>`, `Signal<Loadable<T>>`, or raw promises
 - 🎯 **Type-safe** - Full TypeScript inference for results
 - ⚡ **Promise caching** - Efficiently tracks promise states
 - 🔄 **Automatic updates** - Results update when source signals change
+- ⏱️ **Timeout support** - `wait.timeout()` for time-limited operations
+- 🛡️ **Error recovery** - `wait.fallback()` for graceful error handling
+- 🎨 **Conditional waiting** - `wait.until()` for predicate-based waiting
 
 ## 10. Actions
 
