@@ -1,0 +1,79 @@
+{
+  "name": "rextive",
+  "version": "0.1.0",
+  "description": "A reactive state management library for React with explicit dependencies",
+  "type": "module",
+  "main": "./dist/rextive.umd.js",
+  "module": "./dist/rextive.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/rextive.js",
+      "require": "./dist/rextive.umd.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "dev": "vite build --watch",
+    "build": "tsc && vite build",
+    "build:watch": "tsc && vite build --watch",
+    "watch": "npm run build:watch",
+    "test": "vitest --no-watch",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest --coverage --no-watch",
+    "dry": "npm pack --dry-run",
+    "preversion": "npm test && npm run build && (git diff --quiet && git diff --staged --quiet || (git add -A && git commit -m \"chore: prepare for release\"))",
+    "version:patch": "npm version patch -m \"chore: bump version to %s\"",
+    "version:minor": "npm version minor -m \"chore: bump version to %s\"",
+    "version:major": "npm version major -m \"chore: bump version to %s\"",
+    "postversion": "git push && git push --tags",
+    "prepublishOnly": "npm run build",
+    "postpublish": "git diff --quiet || (git add -A && git commit -m \"chore: post-publish updates\" && git push)",
+    "pu:pa": "npm run version:patch && npm publish",
+    "pu:mi": "npm run version:minor && npm publish",
+    "pu:ma": "npm run version:major && npm publish"
+  },
+  "keywords": [
+    "state",
+    "management",
+    "reactive",
+    "react",
+    "signals",
+    "explicit",
+    "dependencies"
+  ],
+  "author": "linq2js",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/linq2js/rxblox.git",
+    "directory": "packages/rextive"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.1.5",
+    "@testing-library/react": "^14.1.2",
+    "@types/node": "^24.10.1",
+    "@types/react": "^18.2.45",
+    "@vitejs/plugin-react": "^4.2.1",
+    "@vitest/coverage-v8": "^1.1.0",
+    "@vitest/ui": "^1.1.0",
+    "jsdom": "^23.0.1",
+    "react": "^18.2.0",
+    "terser": "^5.36.0",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.8",
+    "vite-plugin-dts": "^3.6.4",
+    "vitest": "^1.1.0",
+    "react-error-boundary": "6.0.0"
+  },
+  "dependencies": {
+    "@types/lodash": "^4.17.20",
+    "lodash": "^4.17.21"
+  }
+}

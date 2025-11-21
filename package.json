@@ -6,7 +6,10 @@
     "dev": "pnpm --filter rxblox-demo dev",
     "dev:todo": "concurrently \"pnpm --filter rxblox build:watch\" \"pnpm --filter rxblox-todo dev\"",
     "build": "pnpm --filter rxblox build",
-    "test": "pnpm --filter rxblox test"
+    "build:rextive": "pnpm --filter rextive build",
+    "build:all": "pnpm --filter rxblox build && pnpm --filter rextive build",
+    "test": "pnpm --filter rxblox test",
+    "test:rextive": "pnpm --filter rextive test"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",

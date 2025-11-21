@@ -1,0 +1,16 @@
+src
+*.config.*
+tsconfig*.json
+.vscode
+.idea
+*.log
+node_modules
+coverage
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+test
+tests
+__tests__
+

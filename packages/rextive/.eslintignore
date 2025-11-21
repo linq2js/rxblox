@@ -1,0 +1,18 @@
+# Test files
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
+
+# Build output
+dist/
+coverage/
+
+# Dependencies
+node_modules/
+
+# Config files
+*.config.ts
+*.config.js
+vite.config.ts
+
