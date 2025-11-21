@@ -137,7 +137,7 @@ export function createSignalAccessProxy<
             }
             return l.value;
           }
-          return loadable("success", value);
+          return value;
         }
 
         if (type === "loadable") {
