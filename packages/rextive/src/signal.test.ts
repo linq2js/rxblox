@@ -31,6 +31,33 @@ describe("signal", () => {
       const sum = signal({ a, b }, ({ deps }) => deps.a + deps.b);
       expect(sum()).toBe(30);
     });
+
+    it("should create signal with no arguments (undefined)", () => {
+      const s = signal();
+      expect(s()).toBe(undefined);
+    });
+
+    it("should create typed signal with no arguments", () => {
+      const user = signal<{ name: string }>();
+      expect(user()).toBe(undefined);
+
+      user.set({ name: "Alice" });
+      expect(user()).toEqual({ name: "Alice" });
+
+      user.set(undefined);
+      expect(user()).toBe(undefined);
+    });
+
+    it("should allow null or undefined for no-arg signal", () => {
+      const value = signal<string>();
+      expect(value()).toBe(undefined);
+
+      value.set("hello");
+      expect(value()).toBe("hello");
+
+      value.set(undefined);
+      expect(value()).toBe(undefined);
+    });
   });
 
   describe("signal reactivity", () => {

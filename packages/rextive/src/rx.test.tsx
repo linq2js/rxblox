@@ -103,7 +103,104 @@ describe("rx", () => {
     });
   });
 
-  describe("Overload 2: Reactive with signals", () => {
+  describe("Overload 2: Single signal", () => {
+    it("should render sync signal value directly", () => {
+      const count = signal(42);
+      const TestComponent = () => rx(count);
+
+      render(<TestComponent />);
+      expect(screen.getByText("42")).toBeInTheDocument();
+    });
+
+    it("should update when signal changes", async () => {
+      const count = signal(1);
+      const TestComponent = () => rx(count);
+
+      render(<TestComponent />);
+      expect(screen.getByText("1")).toBeInTheDocument();
+
+      act(() => {
+        count.set(2);
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText("2")).toBeInTheDocument();
+      });
+    });
+
+    it("should work with async signals and Suspense", async () => {
+      const asyncValue = signal(Promise.resolve(100));
+      const TestComponent = () => (
+        <Suspense fallback={<div data-testid="loading">Loading...</div>}>
+          {rx(asyncValue)}
+        </Suspense>
+      );
+
+      render(<TestComponent />);
+      expect(screen.getByTestId("loading")).toBeInTheDocument();
+
+      await waitFor(() => {
+        expect(screen.getByText("100")).toBeInTheDocument();
+      });
+    });
+
+    it("should render string values", () => {
+      const message = signal("Hello World");
+      const TestComponent = () => rx(message);
+
+      render(<TestComponent />);
+      expect(screen.getByText("Hello World")).toBeInTheDocument();
+    });
+
+    it("should render JSX elements", () => {
+      const content = signal(<span data-testid="jsx">JSX Content</span>);
+      const TestComponent = () => rx(content);
+
+      render(<TestComponent />);
+      expect(screen.getByTestId("jsx")).toHaveTextContent("JSX Content");
+    });
+
+    it("should handle null/undefined values", () => {
+      const nullValue = signal<string | null>(null);
+      const TestComponent = () => (
+        <div data-testid="container">{rx(nullValue)}</div>
+      );
+
+      render(<TestComponent />);
+      expect(screen.getByTestId("container")).toBeEmptyDOMElement();
+    });
+
+    it("should respect watch options", () => {
+      const count = signal(1);
+      let innerRenderCount = 0;
+
+      const TestComponent = ({ dep }: { dep: number }) => {
+        // Track parent renders, but we care about inner rx renders
+        return rx(count, { watch: [dep] });
+      };
+
+      const { rerender } = render(<TestComponent dep={1} />);
+      expect(screen.getByText("1")).toBeInTheDocument();
+      innerRenderCount++;
+
+      // Change watch dep - should trigger new render
+      rerender(<TestComponent dep={2} />);
+      expect(screen.getByText("1")).toBeInTheDocument();
+      innerRenderCount++;
+
+      // Change signal value
+      act(() => {
+        count.set(42);
+      });
+      expect(screen.getByText("42")).toBeInTheDocument();
+
+      // Don't change watch dep - rx should still respond to signal changes
+      rerender(<TestComponent dep={2} />);
+      expect(screen.getByText("42")).toBeInTheDocument();
+    });
+  });
+
+  describe("Overload 3: Reactive with signals", () => {
     it("should render with resolved promise values", async () => {
       const promise = Promise.resolve(42);
       const count = signal(promise);

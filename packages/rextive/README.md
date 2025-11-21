@@ -21,13 +21,13 @@ const doubled = signal({ count }, ({ deps }) => deps.count * 2);
 import { rx } from "rextive";
 
 function Counter() {
-  return rx({ count, doubled }, (awaited) => (
+  return (
     <div>
-      <h1>{awaited.count}</h1>
-      <h2>{awaited.doubled}</h2>
-      <button onClick={() => count.set(count() + 1)}>+1</button>
+      <h1>{rx(count)}</h1>
+      <h2>{rx(doubled)}</h2>
+      <button onClick={() => count.set((x) => x + 1)}>+1</button>
     </div>
-  ));
+  );
 }
 ```
 
@@ -51,12 +51,14 @@ const name = signal("Alice");
 const greeting = signal({ name }, ({ deps }) => `Hello, ${deps.name}!`);
 
 function App() {
-  return rx({ greeting }, (awaited) => (
+  return (
     <div>
-      <h1>{awaited.greeting}</h1>
-      <input value={name()} onChange={(e) => name.set(e.target.value)} />
+      <h1>{rx(greeting)}</h1>
+      {rx({ name }, (x) => (
+        <input value={x.name} onChange={(e) => name.set(e.target.value)} />
+      ))}
     </div>
-  ));
+  );
 }
 ```
 
@@ -72,10 +74,8 @@ function Counter() {
 
   return (
     <div>
-      {rx({ count }, (awaited) => (
-        <div>Count: {awaited.count}</div>
-      ))}
-      <button onClick={() => count.set(count() + 1)}>+</button>
+      <div>Count: {rx(count)}</div>
+      <button onClick={() => count.set((x) => x + 1)}>+</button>
     </div>
   );
 }
@@ -124,7 +124,7 @@ function ConditionalComponent() {
           return <Comp1 />;
         }
 
-        return <Other value={awaited.cloudValue} />;
+        return <Other value={awaited.localValue} />;
       })}
     </Suspense>
   );
@@ -198,13 +198,51 @@ const effectResult = signal({ refreshTrigger }, async ({ deps }) => {
 });
 
 // Trigger the effect
-refreshTrigger.set(refreshTrigger() + 1);
+refreshTrigger.set((x) => x + 1);
 
 // Subscribe to effect results
 effectResult.on(() => {
   console.log("Effect completed:", effectResult());
 });
 ```
+
+### Decoupled modules with trigger signals
+
+```tsx
+import { signal } from "rextive";
+
+// Shared trigger signal - no initial value needed
+const uploadType = signal<"document" | "image">();
+
+// Document module - loads on demand, reacts independently
+const handleUploadDocument = signal({ uploadType }, async ({ deps }) => {
+  if (deps.uploadType === "document") {
+    // Only runs when uploadType is "document"
+    const result = await uploadDocumentService();
+    return result;
+  }
+});
+
+// Image module - loads on demand, reacts independently
+const handleUploadImage = signal({ uploadType }, async ({ deps }) => {
+  if (deps.uploadType === "image") {
+    // Only runs when uploadType is "image"
+    const result = await uploadImageService();
+    return result;
+  }
+});
+
+// Trigger from anywhere - modules react independently
+uploadType.set("document"); // Only document module handles this
+uploadType.set("image"); // Only image module handles this
+```
+
+**Benefits over centralized handlers:**
+
+- ✅ Modules load on demand (code splitting friendly)
+- ✅ No tight coupling between trigger and handlers
+- ✅ Easy to add/remove handlers without changing trigger code
+- ✅ Each module independently decides how to react
 
 ### React Query-like patterns
 
@@ -387,7 +425,7 @@ function LiveData() {
 
     const startPolling = () => {
       intervalId = setInterval(() => {
-        pollTrigger.set(pollTrigger() + 1);
+        pollTrigger.set((x) => x + 1);
       }, 5000);
     };
 
@@ -656,11 +694,16 @@ function logout() {
 // Create a signal
 const count = signal(0);
 
+// Create a signal with no initial value (undefined)
+const user = signal<User>(); // Signal<User | undefined>
+
 // Read value
 count(); // 0
+user(); // undefined
 
 // Update value
 count.set(1);
+user.set({ name: "Alice" });
 
 // Derived signal
 const doubled = signal({ count }, ({ deps }) => deps.count * 2);
@@ -714,6 +757,10 @@ rx(() => <div>Static</div>);
 
 // With watch dependencies
 rx(() => <div>{value}</div>, { watch: [value] });
+
+// Single signal - convenient shorthand
+const count = signal(42);
+rx(count); // Renders: 42
 
 // With signals (always reactive)
 rx({ user, posts }, (awaited, loadable) => (
@@ -870,7 +917,7 @@ const counterSlice = createSlice({
 
 // Rextive
 const count = signal(0);
-// count.set(count() + 1)
+// count.set(x => x + 1)
 ```
 
 **Benefits:** Much simpler, no actions/reducers, direct updates

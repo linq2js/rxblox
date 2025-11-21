@@ -20,6 +20,15 @@ export const DISPOSED_MESSAGE = "Signal is disposed";
 
 export type SignalExports = {
   /**
+   * create a signal with no initial value (undefined)
+   * @param options - The options of the signal
+   * @returns The signal with value type T | undefined
+   */
+  <TValue = unknown>(options?: SignalOptions<TValue | undefined>): Signal<
+    TValue | undefined
+  >;
+
+  /**
    * create a signal with value or lazy value
    * @param value - The value of the signal
    * @param options - The options of the signal
@@ -54,6 +63,10 @@ export type SignalExports = {
 
 export const signal: SignalExports = Object.assign(
   (...args: any[]) => {
+    // overload: signal() - no arguments, creates Signal<undefined>
+    if (args.length === 0) {
+      return createSignal({}, () => undefined, undefined, { value: undefined });
+    }
     // overload: signal(deps, fn, options?)
     if (typeof args[1] === "function") {
       return createSignal(args[0], args[1], args[2], undefined);

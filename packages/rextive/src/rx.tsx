@@ -1,7 +1,8 @@
 import { memo, ReactNode, useCallback, useMemo, useRef } from "react";
-import { SignalMap, RxOptions, ResolveValue, AnyFunc } from "./types";
+import { SignalMap, RxOptions, ResolveValue, AnyFunc, Signal } from "./types";
 import { shallowEquals } from "./utils/shallowEquals";
 import { useSignals } from "./utils/useSignals";
+import { isSignal } from "./signal";
 
 /**
  * Render function signature for overload 2 (with signals).
@@ -13,17 +14,24 @@ export type RxRender<TAwaited, TLoadable> = (
 ) => ReactNode;
 
 const EMPTY_SIGNALS: SignalMap = {};
+// Single signal render function - extracts value from { value: signal } wrapper
+const SINGLE_SIGNAL_RENDER = (awaited: any) => awaited.value;
 
 /**
  * rx - Reactive rendering for signals
  *
- * Two overloads:
+ * Three overloads:
  * 1. **Static or manual control**: `rx(() => ReactNode, { watch?: [...] })`
  *    - No signal tracking by default
  *    - Re-renders only when watch array changes
  *    - Use for static content or manual dependency management
  *
- * 2. **Reactive with signals**: `rx(signals, (awaited, loadable) => ReactNode, { watch?: [...] })`
+ * 2. **Single signal**: `rx(signal, { watch?: [...] })`
+ *    - Automatically renders the awaited value of the signal
+ *    - Equivalent to: `rx({ value: signal }, (awaited) => awaited.value)`
+ *    - Convenient shorthand for displaying a single value
+ *
+ * 3. **Reactive with signals**: `rx(signals, (awaited, loadable) => ReactNode, { watch?: [...] })`
  *    - Automatic lazy signal tracking via proxies
  *    - Re-renders when accessed signals change
  *    - Provides both Suspense (awaited) and manual (loadable) access patterns
@@ -39,14 +47,20 @@ const EMPTY_SIGNALS: SignalMap = {};
  * rx(() => <div>User: {userId}</div>, { watch: [userId] })
  * ```
  *
- * @example Overload 2 - Reactive with Suspense
+ * @example Overload 2 - Single signal
+ * ```tsx
+ * const count = signal(42);
+ * rx(count) // Renders: 42
+ * ```
+ *
+ * @example Overload 3 - Reactive with Suspense
  * ```tsx
  * rx({ user, posts }, (awaited) => (
  *   <div>{awaited.user.name}</div>
  * ))
  * ```
  *
- * @example Overload 2 - Reactive with loadable
+ * @example Overload 3 - Reactive with loadable
  * ```tsx
  * rx({ data }, (_, loadable) => {
  *   if (loadable.data.status === 'loading') return <Spinner />;
@@ -58,7 +72,10 @@ const EMPTY_SIGNALS: SignalMap = {};
 // Overload 1: Static or manual control
 export function rx(render: () => ReactNode, options?: RxOptions): ReactNode;
 
-// Overload 2: Explicit signals with awaited + loadable access
+// Overload 2: Single signal - automatically renders awaited value
+export function rx<T>(signal: Signal<T>, options?: RxOptions): ReactNode;
+
+// Overload 3: Explicit signals with awaited + loadable access
 export function rx<TSignals extends SignalMap>(
   signals: TSignals,
   render: RxRender<
@@ -75,12 +92,19 @@ export function rx(...args: any[]): ReactNode {
   let signals: SignalMap | undefined;
 
   // Parse arguments to determine which overload was called
-  if (typeof args[0] === "function") {
+  // Check isSignal FIRST because signals are also functions
+  if (isSignal(args[0])) {
+    // Overload 2: rx(signal, options?)
+    // Transform single signal into { value: signal } format
+    signals = { value: args[0] };
+    render = SINGLE_SIGNAL_RENDER;
+    options = args[1];
+  } else if (typeof args[0] === "function") {
     // Overload 1: rx(render, options?)
     [render, options] = args;
     // signals remains undefined
   } else {
-    // Overload 2: rx(signals, render, options?)
+    // Overload 3: rx(signals, render, options?)
     [signals, render, options] = args;
   }
 
@@ -180,12 +204,12 @@ const RxWithSignals = memo(
     // - Lazy subscription (only when signals accessed)
     // - Automatic cleanup on unmount
     // - Re-rendering when tracked signals change
-    const getProxy = useSignals(props.signals);
+    const proxyOf = useSignals(props.signals);
 
     // Call render with both proxy types
     // awaited: throws promises for Suspense
     // loadable: returns { status, value?, error?, promise? }
-    return props.render(getProxy("awaited"), getProxy("loadable"));
+    return props.render(proxyOf("awaited"), proxyOf("loadable"));
   },
   // Custom comparison to prevent unnecessary re-renders
   (prev, next) => {

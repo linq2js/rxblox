@@ -32,17 +32,17 @@ export type Disposable = {
 /**
  * Signal type combining Observable, Subscribable, Disposable with setters
  */
-export type Signal<T> = Subscribable &
+export type Signal<TValue, TInit = TValue> = Subscribable &
   Disposable &
-  Observable<T> & {
+  Observable<TValue | TInit> & {
     readonly displayName?: string;
 
-    get(): T;
+    get(): TValue | TInit;
     /**
      * set the signal value
      * @param value - the new value or a function that receives the previous value and returns the new value
      */
-    set(value: T | ((prev: T) => T | void)): void;
+    set(value: TValue | ((prev: TValue) => TValue | void)): void;
 
     /**
      * Returns a setter function that captures the current state.
@@ -51,7 +51,9 @@ export type Signal<T> = Subscribable &
      *
      * @returns A function that takes a value and returns true if set succeeded, false if cancelled
      */
-    setIfUnchanged(): (value: T | ((prev: T) => T | void)) => boolean;
+    setIfUnchanged(): (
+      value: TValue | ((prev: TValue) => TValue | void)
+    ) => boolean;
 
     /**
      * Reset the signal to its initial value
