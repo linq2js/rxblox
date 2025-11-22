@@ -1,4 +1,4 @@
-import { Listener } from "../types";
+import { Listener, SingleOrMultipleListeners } from "../types";
 
 /**
  * Creates an event emitter for managing and notifying listeners.
@@ -56,27 +56,34 @@ export function emitter<T = void>() {
 
   return {
     /**
-     * Adds a listener to the emitter.
+     * Adds one or more listeners to the emitter.
      *
-     * The listener will be called whenever `emit()` is called with a payload.
-     * Returns an unsubscribe function that removes the listener.
+     * The listener(s) will be called whenever `emit()` is called.
+     * Returns an unsubscribe function that removes the listener(s).
      *
      * **Important**: The unsubscribe function is idempotent - calling it multiple
      * times is safe and won't cause errors. If the same listener is added multiple
      * times, it will only be called once per emit (Set deduplication).
      *
-     * @param listener - Function to call when events are emitted
-     * @returns An unsubscribe function that removes the listener
+     * @param newListeners - Single listener or array of listeners to add
+     * @returns An unsubscribe function that removes the listener(s)
      */
-    on(listener: Listener<T>): VoidFunction {
-      listeners.add(listener);
+    on(newListeners: SingleOrMultipleListeners<T>): VoidFunction {
+      if (Array.isArray(newListeners)) {
+        newListeners.forEach((listener) => {
+          listeners.add(listener);
+        });
+        return () => {
+          newListeners.forEach((listener) => {
+            listeners.delete(listener);
+          });
+        };
+      }
 
-      /**
-       * Unsubscribe function that removes the listener from the emitter.
-       * Safe to call multiple times - Set.delete() is idempotent.
-       */
+      listeners.add(newListeners);
+
       return () => {
-        listeners.delete(listener);
+        listeners.delete(newListeners);
       };
     },
     /**

@@ -1,7 +1,7 @@
 import { memo, ReactNode, useCallback, useMemo, useRef } from "react";
 import { SignalMap, RxOptions, ResolveValue, AnyFunc, Signal } from "./types";
 import { shallowEquals } from "./utils/shallowEquals";
-import { useSignals } from "./utils/useSignals";
+import { useSignals } from "./useSignals";
 import { isSignal } from "./signal";
 
 /**
@@ -199,17 +199,17 @@ const Rx = (props: {
  */
 const RxWithSignals = memo(
   (props: { render: RxRender<any, any>; signals: SignalMap }) => {
-    // Create proxy factory that returns awaited/loadable proxies
+    // Get awaited and loadable proxies
     // useSignals handles:
     // - Lazy subscription (only when signals accessed)
     // - Automatic cleanup on unmount
     // - Re-rendering when tracked signals change
-    const proxyOf = useSignals(props.signals);
+    const [awaited, loadable] = useSignals(props.signals);
 
     // Call render with both proxy types
     // awaited: throws promises for Suspense
     // loadable: returns { status, value?, error?, promise? }
-    return props.render(proxyOf("awaited"), proxyOf("loadable"));
+    return props.render(awaited, loadable);
   },
   // Custom comparison to prevent unnecessary re-renders
   (prev, next) => {

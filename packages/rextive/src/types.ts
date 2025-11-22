@@ -1,3 +1,5 @@
+import type { Tag } from "./tag";
+
 /**
  * Function type for use with proxies.
  */
@@ -7,6 +9,8 @@ export type AnyFunc = (...args: any[]) => any;
  * Listener type for emitters
  */
 export type Listener<T> = (value: T) => void;
+
+export type SingleOrMultipleListeners<T> = Listener<T> | Listener<T>[];
 
 /**
  * Subscribable interface for reactive values
@@ -26,6 +30,9 @@ export type Observable<T> = Subscribable & {
  * Disposable interface for cleanup
  */
 export type Disposable = {
+  /**
+   * Dispose of the disposable
+   */
   dispose(): void;
 };
 
@@ -114,9 +121,25 @@ export type RxOptions = {
  * Options for signal creation
  */
 export type SignalOptions<T> = {
+  /** Custom equality function to determine if value changed (default: Object.is) */
   equals?: (a: any, b: any) => boolean;
+  /** Debug name for the signal */
   name?: string;
+  /** Fallback function to recover from errors */
   fallback?: (error: unknown) => T;
+  /**
+   * Optional tags for grouping signals together.
+   *
+   * Tags allow batch operations on multiple signals. A signal can belong
+   * to multiple tags at once.
+   */
+  tags?: readonly Tag<T>[];
+  /** Called once after signal is created and initialized */
+  onInit?: SingleOrMultipleListeners<Signal<T>>;
+  /** Called whenever signal value changes (receives new value) */
+  onChange?: SingleOrMultipleListeners<T>;
+  /** Called whenever signal computation throws an error (receives error) */
+  onError?: SingleOrMultipleListeners<unknown>;
 };
 
 export type ResolveValueType = "awaited" | "loadable" | "value";

@@ -1,8 +1,8 @@
 import { useLayoutEffect, useMemo, useState } from "react";
-import { ResolveValue, ResolveValueType, Signal, SignalMap } from "../types";
-import { useRerender } from "../useRerender";
-import { createSignalAccessProxy } from "./createSignalAccessProxy";
-import { emitter } from "./emitter";
+import { ResolveValue, Signal, SignalMap } from "./types";
+import { useRerender } from "./useRerender";
+import { createSignalAccessProxy } from "./utils/createSignalAccessProxy";
+import { emitter } from "./utils/emitter";
 
 /**
  * useSignals - Hook for reactive signal access with lazy tracking
@@ -85,7 +85,7 @@ export function useSignals<TSignals extends SignalMap>(
   // Recreates when rerender function or signals object changes
   return useMemo(() => {
     // Helper to create a proxy for a specific type
-    const createProxy = <TType extends ResolveValueType>(type: TType) => {
+    const createProxy = <TType extends "awaited" | "loadable">(type: TType) => {
       return createSignalAccessProxy<
         TType,
         TSignals,

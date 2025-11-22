@@ -9,11 +9,7 @@ import {
 } from "./types";
 import { createSignalAccessProxy } from "./utils/createSignalAccessProxy";
 import { produce } from "immer";
-import {
-  persistSignals as persistSignalsImpl,
-  PersistSignalsOptions,
-  PersistSignalsResult,
-} from "./persistSignals";
+import { scheduleNotification } from "./batch";
 
 export const SIGNAL_TYPE = Symbol("SIGNAL_TYPE");
 export const DISPOSED_MESSAGE = "Signal is disposed";
@@ -51,39 +47,26 @@ export type SignalExports = {
     compute: (context: SignalContext<NoInfer<TDependencies>>) => TValue,
     options?: SignalOptions<TValue>
   ): Signal<TValue>;
-
-  /**
-   * Persist multiple signals with centralized load/save operations
-   */
-  persist: <TSignals extends SignalMap>(
-    signals: TSignals,
-    options?: PersistSignalsOptions<TSignals>
-  ) => PersistSignalsResult<TSignals>;
 };
 
-export const signal: SignalExports = Object.assign(
-  (...args: any[]) => {
-    // overload: signal() - no arguments, creates Signal<undefined>
-    if (args.length === 0) {
-      return createSignal({}, () => undefined, undefined, { value: undefined });
-    }
-    // overload: signal(deps, fn, options?)
-    if (typeof args[1] === "function") {
-      return createSignal(args[0], args[1], args[2], undefined);
-    }
-    // overload: signal(value, options?)
-    const isLazy = typeof args[0] === "function";
-    return createSignal(
-      {},
-      isLazy ? args[0] : () => args[0],
-      args[1],
-      isLazy ? undefined : { value: args[0] }
-    );
-  },
-  {
-    persist: persistSignalsImpl,
+export const signal = ((...args: any[]) => {
+  // overload: signal() - no arguments, creates Signal<undefined>
+  if (args.length === 0) {
+    return createSignal({}, () => undefined, undefined, { value: undefined });
   }
-) as SignalExports;
+  // overload: signal(deps, fn, options?)
+  if (typeof args[1] === "function") {
+    return createSignal(args[0], args[1], args[2], undefined);
+  }
+  // overload: signal(value, options?)
+  const isLazy = typeof args[0] === "function";
+  return createSignal(
+    {},
+    isLazy ? args[0] : () => args[0],
+    args[1],
+    isLazy ? undefined : { value: args[0] }
+  );
+}) as SignalExports;
 
 export class FallbackError extends Error {
   readonly originalError: unknown;
@@ -119,10 +102,30 @@ function createSignal(
   options: SignalOptions<any> = {},
   initialValue: { value: any } | undefined
 ): Signal<any> {
-  const { equals = Object.is, name, fallback } = options;
+  const {
+    equals = Object.is,
+    name,
+    fallback,
+    onInit: onInitCallbacks,
+    onChange: onChangeCallbacks,
+    onError: onErrorCallbacks,
+    tags,
+  } = options;
 
   // Emitter for notifying listeners when signal value changes
   const onChange = emitter<void>();
+
+  // Emitter for user-defined onChange callbacks (receives new value)
+  const onChangeValue = emitter<any>();
+  if (onChangeCallbacks) {
+    onChangeValue.on(onChangeCallbacks);
+  }
+
+  // Emitter for user-defined onError callbacks (receives error)
+  const onErrorValue = emitter<unknown>();
+  if (onErrorCallbacks) {
+    onErrorValue.on(onErrorCallbacks);
+  }
 
   // Emitter for cleanup tasks (unsubscribing from deps, aborting requests)
   const onCleanup = emitter<void>();
@@ -143,6 +146,9 @@ function createSignal(
       })
     | undefined;
 
+  // Reference to the signal instance for tag bookkeeping
+  let instanceRef: Signal<any> | undefined;
+
   const isDisposed = () => disposed;
 
   /**
@@ -155,6 +161,11 @@ function createSignal(
     // Mark as disposed but keep current state for reading
     disposed = true;
     context = undefined;
+
+    // Remove this signal from any associated tags
+    if (tags && tags.length > 0 && instanceRef) {
+      tags.forEach((tag) => (tag as any)._remove(instanceRef));
+    }
 
     // Clear listeners and trigger cleanup (unsubscribes from deps)
     onChange.clear();
@@ -229,6 +240,9 @@ function createSignal(
         current = { value };
       }
     } catch (error) {
+      // Emit onError callbacks
+      onErrorValue.emit(error);
+
       // Error handling with optional fallback
       if (fallback) {
         try {
@@ -238,11 +252,49 @@ function createSignal(
         } catch (fallbackError) {
           // Fallback also failed - store the fallback error
           current = { error: fallbackError, value: undefined };
+          // Emit onError for fallback error too
+          onErrorValue.emit(fallbackError);
         }
       } else {
         // No fallback - store the original error
         current = { error, value: undefined };
       }
+    }
+  };
+
+  /**
+   * Notify all listeners about signal change (with batching support)
+   * Also triggers user-defined onChange callbacks with the new value
+   */
+  const notify = () => {
+    scheduleNotification(() => {
+      onChange.emit();
+      // Emit onChange callbacks with new value (if no error)
+      if (current && !current.error) {
+        onChangeValue.emit(current.value);
+      }
+    });
+  };
+
+  /**
+   * Update signal value if it changed (using equals) and notify
+   * @returns true if value changed and was updated
+   */
+  const updateIfChanged = (newValue: any): boolean => {
+    if (!equals(current!.value, newValue)) {
+      current = { value: newValue };
+      notify();
+      return true;
+    }
+    return false;
+  };
+
+  /**
+   * Notify if state object reference changed
+   */
+  const notifyIfStateChanged = (prevState: typeof current) => {
+    if (prevState !== current) {
+      notify();
     }
   };
 
@@ -260,10 +312,7 @@ function createSignal(
   const onDepChange = () => {
     const prev = current;
     recompute();
-    // Only emit if current state object changed (reference equality)
-    if (prev !== current) {
-      onChange.emit();
-    }
+    notifyIfStateChanged(prev);
   };
 
   /**
@@ -297,9 +346,9 @@ function createSignal(
     // Recompute
     recompute();
 
-    // Emit if value actually changed
+    // Emit if value actually changed or there's an error
     if (!current || current.error || !equals(prevValue, current.value)) {
-      onChange.emit();
+      notify();
     }
   };
 
@@ -320,10 +369,7 @@ function createSignal(
     const next = typeof value === "function" ? produce(get(), value) : value;
 
     // Only update and emit if value changed
-    if (!equals(current!.value, next)) {
-      current = { value: next };
-      onChange.emit();
-    }
+    updateIfChanged(next);
   });
 
   /**
@@ -384,6 +430,23 @@ function createSignal(
     setIfUnchanged, // Optimistic setter factory
     reset, // Reset the signal to its initial value
   });
+
+  // Store instance reference for tag bookkeeping
+  instanceRef = instance as unknown as Signal<any>;
+
+  // Register signal with tags (if provided)
+  if (tags && tags.length > 0) {
+    tags.forEach((tag) => (tag as any)._add(instanceRef!));
+  }
+
+  // Call onInit callbacks after signal is created
+  if (onInitCallbacks) {
+    if (Array.isArray(onInitCallbacks)) {
+      onInitCallbacks.forEach((cb) => cb(instance as unknown as Signal<any>));
+    } else {
+      onInitCallbacks(instance as unknown as Signal<any>);
+    }
+  }
 
   return instance as unknown as Signal<any>;
 }

@@ -108,7 +108,7 @@ function Profile() {
 
 ```tsx
 import { Suspense } from "react";
-import { signal, rx, useAwaited } from "rextive";
+import { signal, rx, useSignals } from "rextive";
 
 const cloudValue = signal(async () => fetchCloudValue());
 const localValue = signal("default");
@@ -130,9 +130,9 @@ function ConditionalComponent() {
   );
 }
 
-// Using useAwaited
+// Using useSignals
 function ConditionalComponentWithHook() {
-  const awaited = useAwaited({ cloudValue, localValue });
+  const [awaited] = useSignals({ cloudValue, localValue });
 
   return (
     <Suspense fallback={<div>Loading cloud value...</div>}>
@@ -598,6 +598,76 @@ rx({ user, posts, comments }, (awaited) => {
 });
 ```
 
+### Batching updates
+
+```tsx
+import { signal } from "rextive";
+
+const count = signal(0);
+const name = signal("Alice");
+const age = signal(25);
+
+// Without batch: 3 separate notifications
+count.set(1);
+name.set("Bob");
+age.set(30);
+
+// With batch: Single notification after all updates
+signal.batch(() => {
+  count.set(1);
+  name.set("Bob");
+  age.set(30);
+});
+
+// Useful for derived signals
+const user = signal({ count, name, age }, ({ deps }) => ({
+  id: deps.count,
+  name: deps.name,
+  age: deps.age,
+}));
+
+// user recomputes once instead of 3 times
+signal.batch(() => {
+  count.set(2);
+  name.set("Charlie");
+  age.set(35);
+});
+```
+
+### Batch with form updates
+
+```tsx
+import { signal, rx } from "rextive";
+
+function UserForm() {
+  const form = signal({
+    firstName: "",
+    lastName: "",
+    email: "",
+  });
+
+  const fullName = signal({ form }, ({ deps }) =>
+    `${deps.form.firstName} ${deps.form.lastName}`.trim()
+  );
+
+  const handleReset = () => {
+    // Single update instead of 3
+    signal.batch(() => {
+      form.set((f) => ({ ...f, firstName: "" }));
+      form.set((f) => ({ ...f, lastName: "" }));
+      form.set((f) => ({ ...f, email: "" }));
+    });
+  };
+
+  return (
+    <div>
+      <div>Full Name: {rx(fullName)}</div>
+      <button onClick={handleReset}>Reset</button>
+    </div>
+  );
+}
+```
+
 ### Persistence with localStorage
 
 ```tsx
@@ -725,6 +795,36 @@ const unsubscribe = count.on(() => {
 count.dispose();
 ```
 
+### signal.batch
+
+```tsx
+// Batch multiple signal updates
+signal.batch(() => {
+  count.set(1);
+  name.set("Alice");
+  age.set(25);
+});
+
+// Returns the function result
+const result = signal.batch(() => {
+  count.set(5);
+  return count(); // 5
+});
+
+// Nested batches are supported
+signal.batch(() => {
+  count.set(1);
+  signal.batch(() => {
+    name.set("Bob");
+  }); // No notifications yet
+}); // Single notification after outer batch
+
+// ❌ Cannot use async functions
+signal.batch(async () => {
+  await someAsyncOp(); // Error!
+});
+```
+
 ### signal.persist
 
 ```tsx
@@ -747,6 +847,78 @@ pause(); // Pause saving
 resume(); // Resume and save latest state
 cancel(); // Stop all persistence
 start(); // Restart persistence
+```
+
+### signal.tag
+
+```tsx
+import { signal } from "rextive";
+
+// Create a tag for a group of related signals (e.g. form fields)
+const formTag = signal.tag<string>();
+
+const name = signal("", { tags: [formTag] });
+const email = signal("", { tags: [formTag] });
+
+// Reset all tagged signals at once
+const resetForm = () => {
+  formTag.forEach((s) => s.reset());
+};
+
+// You can also work with multiple tags at once
+const aTag = signal.tag<number>();
+const bTag = signal.tag<string>();
+
+signal.tag.forEach([aTag, bTag] as const, (s) => {
+  // s is Signal<number | string>
+  s.reset();
+});
+```
+
+### wait
+
+```tsx
+import { signal, wait } from "rextive";
+
+const user = signal(async () => fetchUser());
+const posts = signal(async () => fetchPosts());
+
+// Synchronous (Suspense-style) - throws promises/errors, returns values
+// Use this form inside rx() / effects / hooks (no await)
+const [u, p] = wait([user, posts] as const);
+
+// Async with onResolve (returns Promise)
+await wait([user, posts] as const, (u, p) => {
+  console.log(u.name, p.length);
+});
+
+// Async with onResolve + onError (returns Promise)
+await wait(
+  [user, posts] as const,
+  (u, p) => ({ userName: u.name, postCount: p.length }),
+  (error) => ({ userName: "Guest", postCount: 0 })
+);
+
+// Convenience helpers
+// Suspense-style (no callbacks, no await):
+// const [fastest, key] = wait.any({ user, posts }); // first success
+// const [first, source] = wait.race({ user, posts }); // first settle
+// const settled = wait.settled([user, posts]); // all results as PromiseSettledResult[]
+
+// Promise-style (with callbacks)
+await wait.any({ user, posts }, ([val, key]) => {
+  console.log("first success from", key, val);
+});
+
+await wait.race({ user, posts }, ([val, key]) => {
+  console.log("first completion from", key, val);
+});
+
+const settled = await wait.settled([user, posts]); // all results as PromiseSettledResult[]
+
+// Timeout & delay (Promise-based)
+const result = await wait.timeout(user, 5000, "User fetch timed out");
+await wait.delay(1000); // simple sleep
 ```
 
 ### rx
@@ -794,7 +966,7 @@ const { count, doubled } = useScope(
 );
 ```
 
-### useAwaited
+### useSignals
 
 ```tsx
 import { Suspense } from "react";
@@ -802,8 +974,9 @@ import { Suspense } from "react";
 const user = signal(async () => fetchUser());
 const posts = signal(async () => fetchPosts());
 
+// Using awaited (Suspense pattern)
 function Component() {
-  const awaited = useAwaited({ user, posts });
+  const [awaited] = useSignals({ user, posts });
 
   return (
     <Suspense fallback={<div>Loading...</div>}>
@@ -812,20 +985,30 @@ function Component() {
     </Suspense>
   );
 }
-```
 
-### useLoadable
+// Using loadable (manual loading states)
+function ComponentWithLoadable() {
+  const [, loadable] = useSignals({ user, posts });
 
-```tsx
-const data = signal(async () => fetchData());
+  if (loadable.user.status === "loading") return <Spinner />;
+  if (loadable.user.status === "error")
+    return <Error error={loadable.user.error} />;
+  return <div>{loadable.user.value.name}</div>;
+}
 
-function Component() {
-  const loadable = useLoadable({ data });
+// Using both
+function ComponentWithBoth() {
+  const [awaited, loadable] = useSignals({ user, posts });
 
-  if (loadable.data.status === "loading") return <Spinner />;
-  if (loadable.data.status === "error")
-    return <Error error={loadable.data.error} />;
-  return <div>{loadable.data.value}</div>;
+  return (
+    <div>
+      {loadable.user.status === "loading" ? (
+        <Spinner />
+      ) : (
+        <div>{awaited.user.name}</div>
+      )}
+    </div>
+  );
 }
 ```
 

@@ -185,6 +185,12 @@ export function isLoadable<T = unknown>(value: unknown): value is Loadable<T> {
 const promiseCache = new WeakMap<PromiseLike<unknown>, Loadable<unknown>>();
 
 /**
+ * Cache for static (non-promise) values to reuse their success loadables.
+ * Only object/function values are cached via WeakMap to avoid memory leaks.
+ */
+const staticLoadableCache = new WeakMap<object, Loadable<unknown>>();
+
+/**
  * Associates a loadable with a promise in the cache.
  * Used internally to track promise states.
  *
@@ -247,4 +253,38 @@ export function getLoadable<T>(promise: PromiseLike<T>): Loadable<T> {
   );
 
   return setLoadable(promise, loadable("loading", promise as Promise<T>));
+}
+
+/**
+ * Normalizes an arbitrary value into a Loadable.
+ *
+ * - If the value is already a Loadable, returns it as-is.
+ * - If the value is a PromiseLike, wraps or reuses a cached Loadable.
+ * - Otherwise, wraps the value in a "success" Loadable.
+ */
+export function toLoadable<T>(value: unknown): Loadable<T> {
+  if (isLoadable<T>(value)) {
+    return value;
+  }
+
+  if (isPromiseLike<T>(value)) {
+    return getLoadable(value);
+  }
+
+  // Cache object/function values to reuse their success loadables
+  if (
+    value !== null &&
+    (typeof value === "object" || typeof value === "function")
+  ) {
+    const existing = staticLoadableCache.get(value as object);
+    if (existing) {
+      return existing as Loadable<T>;
+    }
+    const l = loadable("success", value as T);
+    staticLoadableCache.set(value as object, l);
+    return l;
+  }
+
+  // Primitives are cheap to wrap, no caching needed
+  return loadable("success", value as T);
 }

@@ -43,7 +43,6 @@ export type { HistoryEntry, HistoryOptions, HistoryQuery } from "./history";
 export { disposable } from "./disposableDispatcher";
 export { FallbackError } from "./signal";
 export { selector } from "./selector";
-export type { Selector } from "./selector";
 export * from "./types";
 export { effect } from "./effect";
 export { rx } from "./rx";
