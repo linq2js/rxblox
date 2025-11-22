@@ -1,8 +1,9 @@
 import { memo, ReactNode, useCallback, useMemo, useRef } from "react";
-import { SignalMap, RxOptions, ResolveValue, AnyFunc, Signal } from "./types";
-import { shallowEquals } from "./utils/shallowEquals";
+import { SignalMap, ResolveValue, AnyFunc, Signal } from "../types";
+import { RxOptions } from "./types";
+import { shallowEquals } from "../utils/shallowEquals";
 import { useSignals } from "./useSignals";
-import { isSignal } from "./signal";
+import { isSignal } from "../signal";
 
 /**
  * Render function signature for overload 2 (with signals).

@@ -2,7 +2,7 @@
 // These are compile-time checks – they should not be imported at runtime.
 
 import { rx } from "./rx";
-import type { Loadable, Signal } from "./types";
+import type { Signal, Loadable } from "../types";
 import type { ReactNode } from "react";
 
 // Utility to assert inferred types at compile time

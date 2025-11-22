@@ -11,6 +11,11 @@
       "import": "./dist/rextive.js",
       "require": "./dist/rextive.umd.js",
       "types": "./dist/index.d.ts"
+    },
+    "./react": {
+      "import": "./dist/react/index.js",
+      "require": "./dist/react/index.js",
+      "types": "./dist/react/index.d.ts"
     }
   },
   "files": [

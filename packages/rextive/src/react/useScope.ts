@@ -1,7 +1,8 @@
 import { useMemo, useState, useLayoutEffect } from "react";
-import { Disposable, UseScopeOptions } from "./types";
-import { shallowEquals } from "./utils/shallowEquals";
-import { isSignal } from "./signal";
+import { Disposable } from "../types";
+import { UseScopeOptions } from "./types";
+import { shallowEquals } from "../utils/shallowEquals";
+import { isSignal } from "../signal";
 
 /**
  * useScope - Create component-scoped disposables

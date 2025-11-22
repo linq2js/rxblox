@@ -1,18 +1,6 @@
 import debounce from "lodash/debounce";
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
-
-export type RerenderOptions = {
-  debounce?: number | "microtask";
-};
-
-export type RerenderFunction<TData = void> = {
-  (data?: TData): void;
-  data?: TData;
-  rendering: () => boolean;
-  cancel: () => void;
-  flush: () => void;
-  immediate: (data?: TData) => void;
-};
+import { RerenderOptions, RerenderFunction } from "./types";
 
 /**
  * Hook for managing component re-renders with optional debouncing and data passing.

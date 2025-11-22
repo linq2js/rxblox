@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { act, useState, Suspense } from "react";
 import { rx } from "./rx";
-import { signal } from "./signal";
+import { signal } from "../signal";
 import { ErrorBoundary } from "react-error-boundary";
 import "@testing-library/jest-dom/vitest";
 
