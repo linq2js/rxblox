@@ -19,10 +19,12 @@ export default defineConfig({
   // in the consumer's production build, not the library's build.
   build: {
     lib: {
-      entry: resolve(__dirname, "src/index.ts"),
-      name: "rextive",
-      formats: ["es", "umd"],
-      fileName: (format) => `rextive.${format === "es" ? "js" : "umd.js"}`,
+      entry: {
+        rextive: resolve(__dirname, "src/index.ts"),
+        "react/index": resolve(__dirname, "src/react/index.ts"),
+        "immer/index": resolve(__dirname, "src/immer/index.ts"),
+      },
+      formats: ["es"],
     },
     minify: "terser",
     terserOptions: {
@@ -39,14 +41,17 @@ export default defineConfig({
       },
     },
     rollupOptions: {
-      external: ["react", "react-dom", "immer"],
+      external: ["react", "react-dom", "react/jsx-runtime", "immer"],
       output: {
-        globals: {
-          react: "React",
-          "react-dom": "ReactDOM",
-          immer: "immer",
+        entryFileNames: (chunkInfo) => {
+          // Main entry: rextive.js
+          if (chunkInfo.name === "rextive") {
+            return "rextive.js";
+          }
+          // Sub-exports: keep path structure
+          return "[name].js";
         },
-        manualChunks: undefined,
+        exports: "named",
       },
       treeshake: {
         moduleSideEffects: false,

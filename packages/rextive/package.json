@@ -3,24 +3,21 @@
   "version": "2.0.0",
   "description": "A reactive state management library for React with explicit dependencies",
   "type": "module",
-  "main": "./dist/rextive.umd.js",
+  "main": "./dist/rextive.js",
   "module": "./dist/rextive.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/rextive.js",
-      "require": "./dist/rextive.umd.js",
-      "types": "./dist/index.d.ts"
+      "types": "./dist/index.d.ts",
+      "default": "./dist/rextive.js"
     },
     "./react": {
-      "import": "./dist/react/index.js",
-      "require": "./dist/react/index.js",
-      "types": "./dist/react/index.d.ts"
+      "types": "./dist/react/index.d.ts",
+      "default": "./dist/react/index.js"
     },
     "./immer": {
-      "import": "./dist/immer/index.js",
-      "require": "./dist/immer/index.js",
-      "types": "./dist/immer/index.d.ts"
+      "types": "./dist/immer/index.d.ts",
+      "default": "./dist/immer/index.js"
     }
   },
   "files": [
