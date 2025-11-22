@@ -39,11 +39,12 @@ export default defineConfig({
       },
     },
     rollupOptions: {
-      external: ["react", "react-dom"],
+      external: ["react", "react-dom", "immer"],
       output: {
         globals: {
           react: "React",
           "react-dom": "ReactDOM",
+          immer: "immer",
         },
         manualChunks: undefined,
       },

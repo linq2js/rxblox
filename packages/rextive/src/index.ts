@@ -46,6 +46,7 @@ export type {
   ErrorLoadable,
   Loadable,
   AnyFunc,
+  HydrateStatus,
 } from "./types";
 
 // Re-export persist types
@@ -89,3 +90,10 @@ export type { ProxyOptions } from "./utils/createProxy";
 export { shallowEquals } from "./utils/shallowEquals";
 export { devLog, devWarn, devError, devOnly, devAssert } from "./utils/dev";
 export { wait, type Awaitable } from "./wait";
+
+// Disposable utilities
+export { disposable, DisposalAggregateError } from "./disposable";
+export type {
+  PropertyMergeStrategy,
+  CombineDisposablesOptions,
+} from "./disposable";

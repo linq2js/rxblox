@@ -156,7 +156,7 @@ describe("persistSignals", () => {
     });
 
 
-    it("should not subscribe until load completes", async () => {
+    it("should apply loaded values if signal not modified during load", async () => {
       const count = signal(0);
       const save = vi.fn();
       let resolveLoad: (value: any) => void;
@@ -171,7 +171,39 @@ describe("persistSignals", () => {
 
       expect(result.status()).toBe("loading");
       
-      // Change signal while loading
+      // Don't modify signal during loading
+      await new Promise(resolve => setTimeout(resolve, 10));
+      
+      // Complete load
+      resolveLoad!({ count: 42 });
+      await new Promise(resolve => setTimeout(resolve, 10));
+      
+      expect(result.status()).toBe("watching");
+      // Loaded value should be applied since signal wasn't modified
+      expect(count.get()).toBe(42);
+      
+      // Now changes should trigger save
+      count.set(50);
+      await new Promise(resolve => setTimeout(resolve, 10));
+      expect(save).toHaveBeenCalledWith({ count: 50 });
+    });
+
+    it("should preserve user modifications during async load", async () => {
+      const count = signal(0);
+      const save = vi.fn();
+      let resolveLoad: (value: any) => void;
+      const loadPromise = new Promise<{ count: number }>(resolve => {
+        resolveLoad = resolve;
+      });
+      
+      const result = persistSignals({ count }, {
+        load: () => loadPromise,
+        save
+      });
+
+      expect(result.status()).toBe("loading");
+      
+      // User modifies signal while loading
       count.set(10);
       await new Promise(resolve => setTimeout(resolve, 10));
       
@@ -183,7 +215,9 @@ describe("persistSignals", () => {
       await new Promise(resolve => setTimeout(resolve, 10));
       
       expect(result.status()).toBe("watching");
-      expect(count.get()).toBe(42);
+      // User's explicit modification (10) should win over loaded value (42)
+      // because hydrate() skips if signal was already modified
+      expect(count.get()).toBe(10);
       
       // Now changes should trigger save
       count.set(50);

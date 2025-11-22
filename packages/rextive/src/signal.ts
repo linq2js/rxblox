@@ -9,9 +9,9 @@ import {
   SignalMap,
   SignalOptions,
   ResolveValue,
+  HydrateStatus,
 } from "./types";
 import { createSignalAccessProxy } from "./utils/createSignalAccessProxy";
-import { produce } from "immer";
 import { scheduleNotification } from "./batch";
 
 export const SIGNAL_TYPE = Symbol("SIGNAL_TYPE");
@@ -26,39 +26,14 @@ export type SignalExports = {
   <TValue = unknown>(): MutableSignal<TValue, undefined>;
 
   /**
-   * Create mutable signal with initial value (non-function)
-   * @param value - Initial value
-   * @returns MutableSignal<T>
-   */
-  <TValue>(value: TValue): MutableSignal<TValue>;
-
-  /**
    * Create mutable signal with initial value and options (non-function value)
-   * @param value - Initial value
+   * @param valueOrCompute - Initial value or compute function
    * @param options - Signal options
    * @returns MutableSignal<T>
    */
   <TValue>(
-    value: TValue,
-    options: SignalOptions<TValue>
-  ): MutableSignal<TValue>;
-
-  /**
-   * Create mutable signal with compute function
-   * @param compute - Compute function
-   * @returns MutableSignal<T>
-   */
-  <TValue>(compute: (context: SignalContext) => TValue): MutableSignal<TValue>;
-
-  /**
-   * Create mutable signal with compute function and options
-   * @param compute - Compute function
-   * @param options - Signal options
-   * @returns MutableSignal<T>
-   */
-  <TValue>(
-    compute: (context: SignalContext) => TValue,
-    options: SignalOptions<TValue>
+    valueOrCompute: TValue | ((context: SignalContext) => TValue),
+    options?: SignalOptions<TValue>
   ): MutableSignal<TValue>;
 
   /**
@@ -247,6 +222,7 @@ function createMutableSignal(
   let disposed = false;
   let context: ReturnType<typeof createContext> | undefined;
   let instanceRef: MutableSignal<any> | undefined;
+  let hasBeenModified = false; // Track if signal has been modified (for hydrate)
 
   const isDisposed = () => disposed;
 
@@ -338,6 +314,7 @@ function createMutableSignal(
     () => {
       const prevValue = current?.value;
       current = initialValue;
+      hasBeenModified = false; // Clear modified flag on reset
 
       // Recompute to get new value
       recompute();
@@ -353,9 +330,10 @@ function createMutableSignal(
     isDisposed,
     "Cannot set value on disposed signal",
     (value: any) => {
-      const next = typeof value === "function" ? produce(get(), value) : value;
+      const next = typeof value === "function" ? value(get()) : value;
 
       if (equals(current?.value, next)) return;
+      hasBeenModified = true; // Mark as modified
       current = { value: next };
       scheduleNotification(() => {
         onChangeValue.emit(next);
@@ -371,19 +349,16 @@ function createMutableSignal(
     return onChange.on(listener);
   };
 
-  const setIfUnchanged = () => {
-    const snapshot = current;
-
-    return (value: any) => {
-      if (snapshot !== current) return false;
-      set(value);
-      return true;
-    };
-  };
-
-  // Hydrate for mutable signals - just sets the value
-  const hydrate = (value: any) => {
+  // Hydrate for mutable signals - skip if already modified
+  const hydrate = (value: any): HydrateStatus => {
+    if (hasBeenModified) {
+      // Already modified (via set), skip hydration
+      return "skipped";
+    }
+    // Not modified yet, apply hydration
     set(value);
+    hasBeenModified = false; // Reset flag - hydration doesn't count as user modification
+    return "success";
   };
 
   const instance = Object.assign(get, {
@@ -393,7 +368,6 @@ function createMutableSignal(
     on,
     dispose,
     set,
-    setIfUnchanged,
     reset,
     toJSON: get,
     hydrate,
@@ -588,14 +562,15 @@ function createComputedSignal(
   const paused = () => isPaused;
 
   // Hydrate for computed signals - skip if already computed
-  const hydrate = (value: any) => {
+  const hydrate = (value: any): HydrateStatus => {
     if (hasComputed) {
       // Already computed, skip hydration
-      return;
+      return "skipped" as const;
     }
     // Set value without computing
     current = { value };
     hasComputed = true;
+    return "success" as const;
   };
 
   const instance = Object.assign(get, {

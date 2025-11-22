@@ -37,6 +37,11 @@ export type Disposable = {
 };
 
 /**
+ * Status returned by hydrate() method
+ */
+export type HydrateStatus = "success" | "skipped";
+
+/**
  * Base signal interface - common functionality for all signal types
  */
 export type Signal<TValue, TInit = TValue> = Subscribable &
@@ -48,6 +53,7 @@ export type Signal<TValue, TInit = TValue> = Subscribable &
 
     /**
      * Reset the signal to its initial value
+     * Also clears the modification flag, allowing hydration again
      */
     reset(): void;
 
@@ -59,45 +65,58 @@ export type Signal<TValue, TInit = TValue> = Subscribable &
 
     /**
      * Hydrate the signal with a value (e.g., from SSR or persistence)
-     * For computed signals: skips hydration if signal has been computed
-     * For mutable signals: sets the value directly
+     *
+     * For computed signals: skips if already computed, returns "skipped"
+     * For mutable signals: skips if already modified via set(), returns "skipped"
+     *
+     * This is intended for initial data loading only, not regular updates.
+     * Multiple hydrations are allowed only before the signal is modified.
+     *
+     * @returns "success" if value was hydrated, "skipped" if already modified/computed
      */
-    hydrate(value: TValue): void;
+    hydrate(value: TValue): HydrateStatus;
   };
 
 /**
  * Mutable signal - can be modified with set()
  * Created when signal() is called without dependencies
+ *
+ * **Type Parameters:**
+ * - `TValue`: The value type that can be set
+ * - `TInit`: The initial value type (defaults to TValue)
+ *
+ * **Important:** For no-arg signals like `signal<T>()`:
+ * - Type is `MutableSignal<T, undefined>`
+ * - `get()` returns `T | undefined`
+ * - `set()` only accepts `T`, NOT `undefined`
+ * - To allow setting `undefined`, use `signal<T | undefined>()`
+ *
+ * @example
+ * ```ts
+ * // No-arg signal: get() returns T | undefined, set() requires T
+ * const user = signal<User>();
+ * user(); // User | undefined
+ * user.set(someUser); // ✅ OK
+ * user.set(undefined); // ❌ Type error!
+ *
+ * // Nullable signal: get() and set() both accept T | undefined
+ * const nullable = signal<User | undefined>();
+ * nullable.set(someUser); // ✅ OK
+ * nullable.set(undefined); // ✅ OK
+ * ```
  */
 export type MutableSignal<TValue, TInit = TValue> = Signal<TValue, TInit> & {
   /**
    * Set signal value directly
-   * @param value - New value
+   * @param value - New value (type: TValue, not TInit)
    */
   set(value: TValue): void;
 
   /**
    * Update signal value via reducer function (returns new value)
-   * @param reducer - Function that receives current value and returns new value
+   * @param reducer - Function that receives current value (TValue | TInit) and returns new value (TValue)
    */
-  set(reducer: (prev: TValue | TInit) => TValue): void;
-
-  /**
-   * Update signal value via updater function (mutates draft via immer, returns void)
-   * @param updater - Function that receives draft and mutates it
-   */
-  set(updater: (draft: TValue | TInit) => void): void;
-
-  /**
-   * Returns a setter function that captures the current state.
-   * The returned function will only set the value if the state hasn't changed
-   * since the setter was created (checked via reference equality).
-   *
-   * @returns A function that takes a value and returns true if set succeeded, false if cancelled
-   */
-  setIfUnchanged(): (
-    value: TValue | ((prev: TValue) => TValue | void)
-  ) => boolean;
+  set(reducer: (prev: NoInfer<TValue | TInit>) => TValue): void;
 };
 
 /**

@@ -39,24 +39,38 @@ describe("signal", () => {
 
     it("should create typed signal with no arguments", () => {
       const user = signal<{ name: string }>();
+      // Initial value is undefined
       expect(user()).toBe(undefined);
 
+      // set() only accepts T, not undefined
       user.set({ name: "Alice" });
       expect(user()).toEqual({ name: "Alice" });
 
-      user.set(undefined);
-      expect(user()).toBe(undefined);
+      // To allow setting undefined, use signal<T | undefined>()
+      const nullable = signal<{ name: string } | undefined>();
+      nullable.set({ name: "Bob" });
+      expect(nullable()).toEqual({ name: "Bob" });
+      nullable.set(undefined);
+      expect(nullable()).toBe(undefined);
     });
 
-    it("should allow null or undefined for no-arg signal", () => {
+    it("should differentiate between optional value types", () => {
+      // signal<T>() - get() returns T | undefined, set() only accepts T
       const value = signal<string>();
       expect(value()).toBe(undefined);
 
       value.set("hello");
       expect(value()).toBe("hello");
 
-      value.set(undefined);
-      expect(value()).toBe(undefined);
+      // Cannot do: value.set(undefined) - Type error!
+      // Must use signal<string | undefined>() if you need to set undefined
+
+      // signal<T | undefined>() - get() returns T | undefined, set() accepts T | undefined
+      const optional = signal<string | undefined>();
+      optional.set("world");
+      expect(optional()).toBe("world");
+      optional.set(undefined);
+      expect(optional()).toBe(undefined);
     });
   });
 
@@ -156,11 +170,12 @@ describe("signal", () => {
       expect(count()).toBe(2);
     });
 
-    it("should support updater function with immer", () => {
+    it("should support reducer function", () => {
       const user = signal({ name: "Alice", age: 25 });
-      user.set((draft) => {
-        draft.age = 26;
-      });
+      user.set((prev) => ({
+        ...prev,
+        age: 26,
+      }));
       expect(user()).toEqual({ name: "Alice", age: 26 });
     });
 
@@ -174,46 +189,6 @@ describe("signal", () => {
 
       count.set(2);
       expect(listener).toHaveBeenCalledOnce();
-    });
-  });
-
-  describe("signal.setIfUnchanged", () => {
-    it("should set value if signal hasn't changed", () => {
-      const count = signal(1);
-      const setter = count.setIfUnchanged();
-
-      expect(setter(2)).toBe(true);
-      expect(count()).toBe(2);
-    });
-
-    it("should not set value if signal changed", () => {
-      const count = signal(1);
-      const setter = count.setIfUnchanged();
-
-      count.set(5); // Change signal
-      expect(setter(2)).toBe(false);
-      expect(count()).toBe(5); // Unchanged
-    });
-
-    it("should work for optimistic updates", async () => {
-      const data = signal<string>("initial");
-      const setter = data.setIfUnchanged();
-
-      // Simulate async operation
-      await new Promise((resolve) => setTimeout(resolve, 10));
-
-      // If data changed during async operation, setter fails
-      data.set("changed");
-      expect(setter("optimistic")).toBe(false);
-      expect(data()).toBe("changed");
-    });
-
-    it("should create new setter on each access", () => {
-      const count = signal(1);
-      const setter1 = count.setIfUnchanged();
-      const setter2 = count.setIfUnchanged();
-
-      expect(setter1).not.toBe(setter2);
     });
   });
 
@@ -265,7 +240,7 @@ describe("signal", () => {
     });
 
     it("should propagate errors through derived signals", () => {
-      const failing = signal(() => {
+      const failing = signal<number>(() => {
         throw new Error("Source failed");
       });
       const derived = signal({ failing }, ({ deps }) => deps.failing * 2);
@@ -1091,6 +1066,120 @@ describe("signal", () => {
         value: 100, // inner signal's toJSON is called automatically
         text: "test",
       });
+    });
+  });
+
+  describe("hydrate", () => {
+    it("should hydrate mutable signal and return success", () => {
+      const count = signal(0);
+      const status = count.hydrate(42);
+
+      expect(status).toBe("success");
+      expect(count()).toBe(42);
+    });
+
+    it("should hydrate computed signal before computation and return success", () => {
+      const a = signal(10);
+      const computed = signal({ a }, ({ deps }) => deps.a * 2);
+
+      // Hydrate before accessing (before computation)
+      const status = computed.hydrate(100);
+
+      expect(status).toBe("success");
+      expect(computed()).toBe(100);
+    });
+
+    it("should skip hydration if computed signal already computed", () => {
+      const a = signal(10);
+      const computed = signal({ a }, ({ deps }) => deps.a * 2);
+
+      // Access first (trigger computation)
+      expect(computed()).toBe(20);
+
+      // Try to hydrate after computation
+      const status = computed.hydrate(100);
+
+      expect(status).toBe("skipped");
+      expect(computed()).toBe(20); // Still the computed value
+    });
+
+    it("should skip hydration on mutable signals after modification", () => {
+      const count = signal(0);
+
+      // First hydration succeeds
+      expect(count.hydrate(10)).toBe("success");
+      expect(count()).toBe(10);
+
+      // User modifies the signal
+      count.set(15);
+      expect(count()).toBe(15);
+
+      // Second hydration is skipped (signal is dirty)
+      expect(count.hydrate(20)).toBe("skipped");
+      expect(count()).toBe(15); // Value unchanged
+    });
+
+    it("should allow multiple hydrations before modification", () => {
+      const count = signal(0);
+
+      // Multiple hydrations before any set() call
+      expect(count.hydrate(10)).toBe("success");
+      expect(count()).toBe(10);
+
+      expect(count.hydrate(20)).toBe("success");
+      expect(count()).toBe(20);
+    });
+
+    it("should notify listeners when mutable signal is hydrated", () => {
+      const count = signal(0);
+      const listener = vi.fn();
+
+      count.on(listener);
+      count.hydrate(42);
+
+      expect(listener).toHaveBeenCalledOnce();
+    });
+
+    it("should not notify listeners when hydration is skipped", () => {
+      const count = signal(0);
+      const listener = vi.fn();
+
+      count.set(10); // Mark as modified
+      count.on(listener);
+      count.hydrate(42); // Will be skipped
+
+      expect(listener).not.toHaveBeenCalled();
+      expect(count()).toBe(10);
+    });
+
+    it("should not notify if hydrated value equals current value", () => {
+      const count = signal(42);
+      const listener = vi.fn();
+
+      count.on(listener);
+      count.hydrate(42); // Same value
+
+      expect(listener).not.toHaveBeenCalled();
+    });
+
+    it("should allow hydration after reset", () => {
+      const count = signal(0);
+
+      // Modify signal
+      count.set(10);
+      expect(count()).toBe(10);
+
+      // Hydration is skipped
+      expect(count.hydrate(20)).toBe("skipped");
+      expect(count()).toBe(10);
+
+      // Reset clears modified flag
+      count.reset();
+      expect(count()).toBe(0);
+
+      // Now hydration works again
+      expect(count.hydrate(30)).toBe("success");
+      expect(count()).toBe(30);
     });
   });
 });

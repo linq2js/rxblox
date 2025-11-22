@@ -905,8 +905,9 @@ function logout() {
 // Create a signal
 const count = signal(0);
 
-// Create a signal with no initial value (undefined)
-const user = signal<User>(); // Signal<User | undefined>
+// Create a signal with no initial value
+// get() returns User | undefined, but set() only accepts User
+const user = signal<User>();
 
 // Read value
 count(); // 0
@@ -914,7 +915,8 @@ user(); // undefined
 
 // Update value
 count.set(1);
-user.set({ name: "Alice" });
+user.set({ name: "Alice" }); // ✅ OK
+// user.set(undefined); // ❌ Type error! Use signal<User | undefined>() to allow undefined
 
 // Derived signal
 const doubled = signal({ count }, ({ deps }) => deps.count * 2);

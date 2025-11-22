@@ -16,6 +16,11 @@
       "import": "./dist/react/index.js",
       "require": "./dist/react/index.js",
       "types": "./dist/react/index.d.ts"
+    },
+    "./immer": {
+      "import": "./dist/immer/index.js",
+      "require": "./dist/immer/index.js",
+      "types": "./dist/immer/index.d.ts"
     }
   },
   "files": [
@@ -58,7 +63,16 @@
     "directory": "packages/rextive"
   },
   "peerDependencies": {
-    "react": "^18.0.0"
+    "react": "^18.0.0",
+    "immer": "^9.0.0 || ^10.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": false
+    },
+    "immer": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.1.5",
@@ -68,6 +82,7 @@
     "@vitejs/plugin-react": "^4.2.1",
     "@vitest/coverage-v8": "^1.1.0",
     "@vitest/ui": "^1.1.0",
+    "immer": "^10.2.0",
     "jsdom": "^23.0.1",
     "react": "^18.2.0",
     "terser": "^5.36.0",
@@ -79,7 +94,6 @@
     "@types/lodash": "^4.17.20"
   },
   "dependencies": {
-    "lodash": "^4.17.21",
-    "immer": "^10.2.0"
+    "lodash": "^4.17.21"
   }
 }
