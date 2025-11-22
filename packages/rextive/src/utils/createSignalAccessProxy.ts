@@ -9,6 +9,7 @@ export type SignalAccessProxyOptions<
   TType extends ResolveValueType
 > = {
   type?: TType;
+
   /**
    * Function that returns the current signals object.
    * Called on every property access to get the latest signals.
@@ -34,7 +35,11 @@ export type SignalAccessProxyOptions<
    */
   shouldTrack?: () => boolean;
 
+  isReading?: () => boolean;
+
   onFinally?: VoidFunction;
+
+  propValueCache?: Map<string, { value: any; error: any }>;
 };
 
 /**
@@ -104,52 +109,79 @@ export function createSignalAccessProxy<
   const { getSignals, onSignalAccess, getValue, shouldTrack, type, onFinally } =
     options;
 
+  const getPropValue = (prop: string) => {
+    const signals = getSignals();
+    const signal = signals[prop as keyof TSignals];
+    if (!isSignal(signal)) {
+      return undefined;
+    }
+
+    // Lazy tracking: only call onSignalAccess if shouldTrack returns true
+    if (!shouldTrack || shouldTrack()) {
+      onSignalAccess(signal);
+    }
+
+    // Get and optionally transform the value
+    if (getValue) {
+      return getValue(signal);
+    }
+
+    const value = signal();
+
+    if (type === "awaited") {
+      if (isPromiseLike(value)) {
+        const l = getLoadable(value);
+        if (l.status === "loading") {
+          throw l.promise;
+        }
+        if (l.status === "error") {
+          throw l.error;
+        }
+        return l.value;
+      }
+      return value;
+    }
+
+    if (type === "loadable") {
+      const l = toLoadable(value);
+      if (l.status === "loading" && onFinally) {
+        l.promise.then(onFinally, onFinally);
+      }
+      return l;
+    }
+
+    // Default: return signal value directly
+    return value;
+  };
+
   return createProxy({
     get: getSignals,
     traps: {
       get(_target, prop: string) {
-        const signals = getSignals();
-        const signal = signals[prop as keyof TSignals];
-        if (!isSignal(signal)) {
-          return undefined;
+        if (options.isReading?.()) {
+          return getPropValue(prop);
         }
 
-        // Lazy tracking: only call onSignalAccess if shouldTrack returns true
-        if (!shouldTrack || shouldTrack()) {
-          onSignalAccess(signal);
-        }
-
-        // Get and optionally transform the value
-        if (getValue) {
-          return getValue(signal);
-        }
-
-        const value = signal();
-
-        if (type === "awaited") {
-          if (isPromiseLike(value)) {
-            const l = getLoadable(value);
-            if (l.status === "loading") {
-              throw l.promise;
+        try {
+          if (options.propValueCache) {
+            const existing = options.propValueCache.get(prop);
+            if (existing) {
+              if (existing.error) {
+                throw existing.error;
+              }
+              return existing.value;
             }
-            if (l.status === "error") {
-              throw l.error;
-            }
-            return l.value;
           }
+
+          const value = getPropValue(prop);
+
+          options.propValueCache?.set(prop, { value, error: undefined });
+
           return value;
+        } catch (error) {
+          options.propValueCache?.set(prop, { value: undefined, error });
+          throw error;
         }
-
-        if (type === "loadable") {
-          const l = toLoadable(value);
-          if (l.status === "loading" && onFinally) {
-            l.promise.then(onFinally, onFinally);
-          }
-          return l;
-        }
-
-        // Default: return signal value directly
-        return value;
       },
     },
   }) as unknown as TResolved;

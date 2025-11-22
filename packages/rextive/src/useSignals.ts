@@ -51,6 +51,10 @@ export function useSignals<TSignals extends SignalMap>(
   // Stores current signals and tracks which ones were accessed
   const [ref] = useState(() => {
     return {
+      propValueCache: {
+        awaited: new Map<string, { value: any; error: any }>(),
+        loadable: new Map<string, { value: any; error: any }>(),
+      },
       signals, // Current signals object (updated each render)
       trackedSignals: new Set<Signal<any>>(), // Signals accessed during render
     };
@@ -59,6 +63,8 @@ export function useSignals<TSignals extends SignalMap>(
   // Update signals reference and clear tracking set for new render
   ref.signals = signals;
   ref.trackedSignals.clear();
+  ref.propValueCache.awaited.clear();
+  ref.propValueCache.loadable.clear();
 
   // Set up subscriptions AFTER render completes (useLayoutEffect runs synchronously)
   // This ensures we only subscribe to signals that were actually accessed
@@ -78,6 +84,8 @@ export function useSignals<TSignals extends SignalMap>(
     // - Dependencies change
     return () => {
       onCleanup.emitAndClear();
+      ref.propValueCache.awaited.clear();
+      ref.propValueCache.loadable.clear();
     };
   });
 
@@ -100,10 +108,12 @@ export function useSignals<TSignals extends SignalMap>(
         onFinally: () => {
           rerender();
         },
+        isReading: rerender.rendering,
         // Lazy tracking: only track signals accessed during render phase
         // rerender.rendering() === true means we're currently rendering
         // This prevents tracking signals accessed outside render (e.g., in callbacks)
         shouldTrack: () => rerender.rendering(),
+        propValueCache: ref.propValueCache[type],
       });
     };
 
