@@ -573,7 +573,7 @@ describe("signal", () => {
       count.dispose();
 
       // After disposal, set throws so listeners can't be called anyway
-      expect(() => count.set(3)).toThrow("Signal is disposed");
+      expect(() => count.set(3)).toThrow("Cannot set value on disposed signal");
       expect(listener).not.toHaveBeenCalled();
     });
 
@@ -581,7 +581,7 @@ describe("signal", () => {
       const count = signal(1);
       count.dispose();
 
-      expect(() => count.set(2)).toThrow("Signal is disposed");
+      expect(() => count.set(2)).toThrow("Cannot set value on disposed signal");
     });
 
     it("should return last known value after disposal", () => {
@@ -1051,7 +1051,7 @@ describe("signal", () => {
       expect(promise).toBeInstanceOf(Promise);
       // Promise serializes to empty object
       expect(JSON.stringify(data)).toBe("{}");
-      
+
       // After awaiting, signal still returns Promise
       await promise;
       expect(JSON.stringify(data)).toBe("{}");

@@ -2,7 +2,10 @@ import { Emitter, emitter } from "./utils/emitter";
 import { guardDisposed } from "./utils/guardDisposed";
 import {
   Signal,
+  MutableSignal,
+  ComputedSignal,
   SignalContext,
+  ComputedSignalContext,
   SignalMap,
   SignalOptions,
   ResolveValue,
@@ -16,57 +19,103 @@ export const DISPOSED_MESSAGE = "Signal is disposed";
 
 export type SignalExports = {
   /**
-   * create a signal with no initial value (undefined)
-   * @param options - The options of the signal
-   * @returns The signal with value type T | undefined
+   * Create mutable signal with no initial value
+   * get() returns T | undefined, but set() requires T
+   * @returns MutableSignal<T, undefined>
    */
-  <TValue = unknown>(options?: SignalOptions<TValue | undefined>): Signal<
-    TValue | undefined
-  >;
+  <TValue = unknown>(): MutableSignal<TValue, undefined>;
 
   /**
-   * create a signal with value or lazy value
-   * @param value - The value of the signal
-   * @param options - The options of the signal
-   * @returns The signal
+   * Create mutable signal with initial value (non-function)
+   * @param value - Initial value
+   * @returns MutableSignal<T>
+   */
+  <TValue>(value: TValue): MutableSignal<TValue>;
+
+  /**
+   * Create mutable signal with initial value and options (non-function value)
+   * @param value - Initial value
+   * @param options - Signal options
+   * @returns MutableSignal<T>
    */
   <TValue>(
-    value: TValue | ((context: SignalContext) => TValue),
-    options?: SignalOptions<TValue>
-  ): Signal<TValue>;
+    value: TValue,
+    options: SignalOptions<TValue>
+  ): MutableSignal<TValue>;
 
   /**
-   * create a signal with dependencies
-   * @param dependencies - The dependencies of the signal
-   * @param compute - The compute function of the signal
-   * @param options - The options of the signal
-   * @returns The signal
+   * Create mutable signal with compute function
+   * @param compute - Compute function
+   * @returns MutableSignal<T>
+   */
+  <TValue>(compute: (context: SignalContext) => TValue): MutableSignal<TValue>;
+
+  /**
+   * Create mutable signal with compute function and options
+   * @param compute - Compute function
+   * @param options - Signal options
+   * @returns MutableSignal<T>
+   */
+  <TValue>(
+    compute: (context: SignalContext) => TValue,
+    options: SignalOptions<TValue>
+  ): MutableSignal<TValue>;
+
+  /**
+   * Create computed signal from dependencies
+   * @param dependencies - Map of signals to depend on
+   * @param compute - Compute function that receives dependency values
+   * @returns ComputedSignal<T>
    */
   <TValue, TDependencies extends SignalMap>(
     dependencies: TDependencies,
-    compute: (context: SignalContext<NoInfer<TDependencies>>) => TValue,
-    options?: SignalOptions<TValue>
-  ): Signal<TValue>;
+    compute: (context: ComputedSignalContext<NoInfer<TDependencies>>) => TValue
+  ): ComputedSignal<TValue>;
+
+  /**
+   * Create computed signal from dependencies with options
+   * @param dependencies - Map of signals to depend on
+   * @param compute - Compute function that receives dependency values
+   * @param options - Signal options
+   * @returns ComputedSignal<T>
+   */
+  <TValue, TDependencies extends SignalMap>(
+    dependencies: TDependencies,
+    compute: (context: ComputedSignalContext<NoInfer<TDependencies>>) => TValue,
+    options: SignalOptions<TValue>
+  ): ComputedSignal<TValue>;
+
+  /**
+   * Type guard to check if value is a signal
+   */
+  is: typeof isSignal;
 };
 
-export const signal = ((...args: any[]) => {
-  // overload: signal() - no arguments, creates Signal<undefined>
-  if (args.length === 0) {
-    return createSignal({}, () => undefined, undefined, { value: undefined });
+export const signal = Object.assign(
+  ((...args: any[]) => {
+    // overload: signal() - no arguments, creates MutableSignal<undefined>
+    if (args.length === 0) {
+      return createMutableSignal({}, () => undefined, undefined, {
+        value: undefined,
+      });
+    }
+    // overload: signal(deps, fn, options?) - creates ComputedSignal
+    if (typeof args[1] === "function") {
+      return createComputedSignal(args[0], args[1], args[2]);
+    }
+    // overload: signal(value, options?) - creates MutableSignal
+    const isLazy = typeof args[0] === "function";
+    return createMutableSignal(
+      {},
+      isLazy ? args[0] : () => args[0],
+      args[1],
+      isLazy ? undefined : { value: args[0] }
+    );
+  }) as SignalExports,
+  {
+    is: isSignal,
   }
-  // overload: signal(deps, fn, options?)
-  if (typeof args[1] === "function") {
-    return createSignal(args[0], args[1], args[2], undefined);
-  }
-  // overload: signal(value, options?)
-  const isLazy = typeof args[0] === "function";
-  return createSignal(
-    {},
-    isLazy ? args[0] : () => args[0],
-    args[1],
-    isLazy ? undefined : { value: args[0] }
-  );
-}) as SignalExports;
+);
 
 export class FallbackError extends Error {
   readonly originalError: unknown;
@@ -88,10 +137,10 @@ function createContext(
   deps: SignalMap,
   onCleanup: Emitter,
   onDepChange: VoidFunction
-): SignalContext<SignalMap> & {
+): ComputedSignalContext<SignalMap> & {
   trackedDeps: Set<Signal<any>>;
   abortController: AbortController;
-  cleanup: VoidFunction;
+  dispose: VoidFunction;
 } {
   let abortController: AbortController | undefined;
   let trackedDeps: Set<Signal<any>> | undefined;
@@ -111,6 +160,18 @@ function createContext(
     return abortController;
   };
 
+  const contextCleanup = (fn: VoidFunction) => {
+    onCleanup.on(fn);
+  };
+
+  const internalCleanup = () => {
+    abortController?.abort();
+    abortController = undefined;
+    trackedDeps?.clear();
+    trackedDeps = undefined;
+    depsProxy = undefined;
+  };
+
   return {
     get abortController() {
       return getAbortController();
@@ -118,6 +179,10 @@ function createContext(
     get trackedDeps() {
       return getTrackedDeps();
     },
+    get abortSignal() {
+      return getAbortController().signal;
+    },
+    cleanup: contextCleanup,
     // Proxy for dependency access with auto-tracking
     get deps() {
       if (!depsProxy) {
@@ -140,37 +205,21 @@ function createContext(
       }
       return depsProxy;
     },
-    get abortSignal() {
-      return getAbortController().signal;
-    },
-    cleanup() {
-      abortController?.abort();
-      abortController = undefined;
-      trackedDeps?.clear();
-      trackedDeps = undefined;
-      depsProxy = undefined;
-    },
+    dispose: internalCleanup,
   };
 }
 
 /**
- * Internal function to create a signal instance.
- *
- * Signals are lazy - they don't compute until first access.
- * Signals with dependencies automatically track and recompute when deps change.
- *
- * @param deps - Map of dependency signals
- * @param fn - Computation function that receives a context with deps proxy
- * @param options - Signal options (equals, name, fallback)
- * @param eager - If true, compute immediately instead of lazily
- * @returns Signal instance
+ * Create a mutable signal (no dependencies)
+ * Has: set(), setIfUnchanged(), hydrate()
+ * No: pause(), resume()
  */
-function createSignal(
-  deps: SignalMap,
-  fn: (context: SignalContext<SignalMap>) => any,
+function createMutableSignal(
+  deps: SignalMap, // Always empty {} for mutable signals
+  fn: (context: SignalContext) => any,
   options: SignalOptions<any> = {},
   initialValue: { value: any } | undefined
-): Signal<any> {
+): MutableSignal<any> {
   const {
     equals = Object.is,
     name,
@@ -181,186 +230,101 @@ function createSignal(
     lazy = true,
   } = options;
 
-  // Emitter for notifying listeners when signal value changes
   const onChange = emitter<void>();
-
-  // Emitter for user-defined onChange callbacks (receives new value)
   const onChangeValue = emitter<any>();
   if (onChangeCallbacks) {
     onChangeValue.on(onChangeCallbacks);
   }
 
-  // Emitter for user-defined onError callbacks (receives error)
   const onErrorValue = emitter<unknown>();
   if (onErrorCallbacks) {
     onErrorValue.on(onErrorCallbacks);
   }
 
-  // Emitter for cleanup tasks (unsubscribing from deps, aborting requests)
   const onCleanup = emitter<void>();
 
-  // Current state: { value } for success, { error, value: undefined } for errors
-  // undefined means not yet computed (lazy evaluation)
   let current: { value: any; error?: unknown } | undefined = initialValue;
-
-  // Disposal flag - once disposed, signal becomes read-only (last known value)
   let disposed = false;
-
-  // Computation context - recreated on each recompute
-  // Contains: deps proxy, trackedDeps set, abortController, abortSignal
   let context: ReturnType<typeof createContext> | undefined;
-
-  // Reference to the signal instance for tag bookkeeping
-  let instanceRef: Signal<any> | undefined;
+  let instanceRef: MutableSignal<any> | undefined;
 
   const isDisposed = () => disposed;
 
-  /**
-   * Dispose the signal and cleanup all resources.
-   * After disposal, signal remains readable but won't recompute.
-   */
   const dispose = () => {
     if (disposed) return;
-    context?.cleanup();
-
-    // Mark as disposed but keep current state for reading
+    context?.dispose();
     disposed = true;
     context = undefined;
 
-    // Remove this signal from any associated tags
     if (tags && tags.length > 0 && instanceRef) {
       tags.forEach((tag) => (tag as any)._remove(instanceRef));
     }
 
-    // Clear listeners and trigger cleanup (unsubscribes from deps)
     onChange.clear();
     onCleanup.emitAndClear();
   };
 
-  /**
-   * Recompute the signal value.
-   *
-   * This function:
-   * 1. Cleans up previous computation (unsubscribes from old deps)
-   * 2. Creates new computation context with fresh AbortController
-   * 3. Executes computation function with dependency tracking
-   * 4. Updates current state if value changed (using equals)
-   * 5. Handles errors with optional fallback
-   *
-   * Note: Does NOT emit onChange - that's handled by onDepChange wrapper
-   */
   const recompute = () => {
-    if (disposed) return;
+    if (disposed) {
+      throw new Error("Cannot recompute disposed signal");
+    }
 
-    // Cleanup previous computation:
-    // - Calls all unsubscribe functions from tracked deps
-    // - Aborts previous AbortController
-    // - Clears trackedDeps set
     onCleanup.emitAndClear();
-    context?.cleanup();
+    context?.dispose();
+
+    context = createContext(deps, onCleanup, recompute);
 
     try {
-      // Create computation context
-      context = createContext(deps, onCleanup, onDepChange);
+      const result = fn(context);
 
-      // Execute computation function
-      const value = fn(context);
+      const hadError = current?.error;
+      const changed = hadError || !equals(current?.value, result);
 
-      // Update current state only if value changed (using equals function)
-      // This prevents unnecessary onChange emissions
-      if (!current || !equals(current.value, value)) {
-        current = { value };
+      if (changed) {
+        current = { value: result };
+      }
+
+      if (changed) {
+        scheduleNotification(() => {
+          onChangeValue.emit(result);
+          onChange.emit();
+        });
       }
     } catch (error) {
-      // Emit onError callbacks
       onErrorValue.emit(error);
 
-      // Error handling with optional fallback
       if (fallback) {
         try {
-          // Try to recover using fallback function
           const fallbackValue = fallback(error);
-          current = { value: fallbackValue };
+          const changed =
+            current?.error || !equals(current?.value, fallbackValue);
+
+          if (changed) {
+            current = { value: fallbackValue };
+            scheduleNotification(() => {
+              onChangeValue.emit(fallbackValue);
+              onChange.emit();
+            });
+          }
         } catch (fallbackError) {
-          // Fallback also failed - store the fallback error
-          current = { error: fallbackError, value: undefined };
-          // Emit onError for fallback error too
-          onErrorValue.emit(fallbackError);
+          current = {
+            error: new FallbackError(error, fallbackError, name),
+            value: undefined,
+          };
+          // Don't throw - just store error state
         }
       } else {
-        // No fallback - store the original error
         current = { error, value: undefined };
+        // Don't throw - just store error state
       }
     }
   };
 
-  /**
-   * Notify all listeners about signal change (with batching support)
-   * Also triggers user-defined onChange callbacks with the new value
-   */
-  const notify = () => {
-    scheduleNotification(() => {
-      onChange.emit();
-      // Emit onChange callbacks with new value (if no error)
-      if (current && !current.error) {
-        onChangeValue.emit(current.value);
-      }
-    });
-  };
-
-  /**
-   * Update signal value if it changed (using equals) and notify
-   * @returns true if value changed and was updated
-   */
-  const updateIfChanged = (newValue: any): boolean => {
-    if (!equals(current!.value, newValue)) {
-      current = { value: newValue };
-      notify();
-      return true;
-    }
-    return false;
-  };
-
-  /**
-   * Notify if state object reference changed
-   */
-  const notifyIfStateChanged = (prevState: typeof current) => {
-    if (prevState !== current) {
-      notify();
-    }
-  };
-
-  /**
-   * Callback invoked when a dependency signal changes.
-   *
-   * This wrapper is crucial for performance:
-   * - Captures reference to current state before recompute
-   * - Only emits onChange if current state object actually changed
-   * - Prevents unnecessary listener notifications when value is equal
-   *
-   * Example: if deps change but computed result is same (per equals),
-   * recompute() won't update current object, so we don't emit.
-   */
-  const onDepChange = () => {
-    const prev = current;
-    recompute();
-    notifyIfStateChanged(prev);
-  };
-
-  /**
-   * Get current signal value.
-   *
-   * - Lazy: triggers computation on first access
-   * - Throws if computation resulted in error
-   * - After disposal: returns last known value or throws last error
-   */
   const get = () => {
-    // Lazy evaluation - compute on first access (but not if disposed)
     if (!current && !disposed) {
       recompute();
     }
 
-    // Throw if computation failed
     if (current?.error) {
       throw current.error;
     }
@@ -368,141 +332,363 @@ function createSignal(
     return current!.value;
   };
 
-  const reset = () => {
-    // Capture previous value before reset
-    const prevValue = current?.value;
+  const reset = guardDisposed(
+    isDisposed,
+    "Cannot reset disposed signal",
+    () => {
+      const prevValue = current?.value;
+      current = initialValue;
 
-    // Reset to initial state
-    current = initialValue;
+      // Recompute to get new value
+      recompute();
 
-    // Recompute
-    recompute();
-
-    // Emit if value actually changed or there's an error
-    if (!current || current.error || !equals(prevValue, current.value)) {
-      notify();
+      // Notify only if value actually changed or there's an error
+      if (!current || current.error || !equals(prevValue, current.value)) {
+        scheduleNotification(() => onChange.emit());
+      }
     }
-  };
+  );
 
-  /**
-   * Set signal value directly.
-   *
-   * - Supports value or updater function (via immer)
-   * - Only updates and emits if value changed (using equals)
-   * - Throws if signal is disposed
-   */
-  const set = guardDisposed(isDisposed, DISPOSED_MESSAGE, (value: any) => {
-    // Ensure signal is initialized
-    if (!current) {
-      get();
+  const set = guardDisposed(
+    isDisposed,
+    "Cannot set value on disposed signal",
+    (value: any) => {
+      const next = typeof value === "function" ? produce(get(), value) : value;
+
+      if (equals(current?.value, next)) return;
+      current = { value: next };
+      scheduleNotification(() => {
+        onChangeValue.emit(next);
+        onChange.emit();
+      });
     }
+  );
 
-    // Handle updater function using immer for immutable updates
-    const next = typeof value === "function" ? produce(get(), value) : value;
-
-    // Only update and emit if value changed
-    updateIfChanged(next);
-  });
-
-  /**
-   * Wrapper for onChange.on that ensures lazy signals are computed
-   * before subscribing. This allows derived signals to react to changes.
-   */
   const on = (listener: VoidFunction) => {
-    // If signal has dependencies and hasn't been computed yet, compute it now
-    // This ensures we subscribe to dependencies before returning
     if (!current && Object.keys(deps).length > 0) {
       get();
     }
     return onChange.on(listener);
   };
 
-  /**
-   * Returns a setter function that captures the current state.
-   * The returned function will only set the value if the state hasn't changed
-   * since the setter was created (checked via reference equality).
-   *
-   * This enables optimistic updates that auto-cancel if signal changed:
-   *
-   * @example
-   * ```ts
-   * const optimisticSet = signal.setIfUnchanged();
-   *
-   * fetchData().then(data => {
-   *   // Only sets if signal hasn't changed since optimisticSet was created
-   *   if (!optimisticSet(data)) {
-   *     console.log('Signal changed, update cancelled');
-   *   }
-   * });
-   * ```
-   */
   const setIfUnchanged = () => {
-    // Capture current state at time of call
     const snapshot = current;
 
-    // Return setter that checks snapshot
     return (value: any) => {
-      // Cancel if current state changed (reference equality)
       if (snapshot !== current) return false;
-
-      // Otherwise, perform normal set
       set(value);
       return true;
     };
   };
 
-  // Create signal instance by combining getter function with methods
+  // Hydrate for mutable signals - just sets the value
+  const hydrate = (value: any) => {
+    set(value);
+  };
+
   const instance = Object.assign(get, {
-    [SIGNAL_TYPE]: true, // Internal marker for isSignal() type guard
-    displayName: name, // Debug name
-    get, // Explicit getter (same as calling signal)
-    on, // Subscribe to changes (with auto-computation)
-    dispose, // Cleanup and mark as disposed
-    set, // Direct value setter
-    setIfUnchanged, // Optimistic setter factory
-    reset, // Reset the signal to its initial value
-    toJSON: get, // JSON serialization - returns current value
+    [SIGNAL_TYPE]: true,
+    displayName: name,
+    get,
+    on,
+    dispose,
+    set,
+    setIfUnchanged,
+    reset,
+    toJSON: get,
+    hydrate,
   });
 
-  // Store instance reference for tag bookkeeping
-  instanceRef = instance as unknown as Signal<any>;
+  instanceRef = instance as unknown as MutableSignal<any>;
 
-  // Register signal with tags (if provided)
   if (tags && tags.length > 0) {
     tags.forEach((tag) => (tag as any)._add(instanceRef!));
   }
 
-  // If not lazy, compute immediately
   if (!lazy) {
     instance.get();
   }
 
-  return instance as unknown as Signal<any>;
+  return instance as unknown as MutableSignal<any>;
 }
 
 /**
- * Type guard to check if a value is a signal.
+ * Create a computed signal (with dependencies)
+ * Has: pause(), resume(), paused(), hydrate()
+ * No: set(), setIfUnchanged()
+ */
+function createComputedSignal(
+  deps: SignalMap,
+  fn: (context: ComputedSignalContext<SignalMap>) => any,
+  options: SignalOptions<any> = {}
+): ComputedSignal<any> {
+  // Similar to createSignal but without set/setIfUnchanged
+  // and with pause/resume functionality
+
+  const {
+    equals = Object.is,
+    name,
+    fallback,
+    onChange: onChangeCallbacks,
+    onError: onErrorCallbacks,
+    tags,
+    lazy = true,
+  } = options;
+
+  const onChange = emitter<void>();
+  const onChangeValue = emitter<any>();
+  if (onChangeCallbacks) {
+    onChangeValue.on(onChangeCallbacks);
+  }
+
+  const onErrorValue = emitter<unknown>();
+  if (onErrorCallbacks) {
+    onErrorValue.on(onErrorCallbacks);
+  }
+
+  const onCleanup = emitter<void>();
+
+  let current: { value: any; error?: unknown } | undefined = undefined;
+  let disposed = false;
+  let context: ReturnType<typeof createContext> | undefined;
+  let instanceRef: ComputedSignal<any> | undefined;
+  let isPaused = false;
+  let hasComputed = false; // Track if signal has been computed (for hydrate)
+
+  const isDisposed = () => disposed;
+
+  const dispose = () => {
+    if (disposed) return;
+    context?.dispose();
+    disposed = true;
+    context = undefined;
+
+    if (tags && tags.length > 0 && instanceRef) {
+      tags.forEach((tag) => (tag as any)._remove(instanceRef));
+    }
+
+    onChange.clear();
+    onCleanup.emitAndClear();
+  };
+
+  const recompute = () => {
+    if (disposed) {
+      throw new Error("Cannot recompute disposed signal");
+    }
+
+    onCleanup.emitAndClear();
+    context?.dispose();
+
+    context = createContext(deps, onCleanup, () => {
+      if (!isPaused) {
+        recompute();
+      }
+    });
+
+    try {
+      const result = fn(context);
+      hasComputed = true;
+
+      const hadError = current?.error;
+      const changed = hadError || !equals(current?.value, result);
+
+      if (changed) {
+        current = { value: result };
+      }
+
+      if (changed) {
+        scheduleNotification(() => {
+          onChangeValue.emit(result);
+          onChange.emit();
+        });
+      }
+    } catch (error) {
+      onErrorValue.emit(error);
+
+      const hadValue = current && !current.error;
+
+      if (fallback) {
+        try {
+          const fallbackValue = fallback(error);
+          const changed =
+            current?.error || !equals(current?.value, fallbackValue);
+
+          if (changed) {
+            current = { value: fallbackValue };
+            scheduleNotification(() => {
+              onChangeValue.emit(fallbackValue);
+              onChange.emit();
+            });
+          }
+        } catch (fallbackError) {
+          current = {
+            error: new FallbackError(error, fallbackError, name),
+            value: undefined,
+          };
+          // Notify about error state change
+          if (hadValue) {
+            scheduleNotification(() => onChange.emit());
+          }
+        }
+      } else {
+        current = { error, value: undefined };
+        // Notify about error state change
+        if (hadValue) {
+          scheduleNotification(() => onChange.emit());
+        }
+      }
+    }
+  };
+
+  const get = () => {
+    if (!current && !disposed) {
+      recompute();
+    }
+
+    if (current?.error) {
+      throw current.error;
+    }
+
+    return current!.value;
+  };
+
+  const reset = guardDisposed(
+    isDisposed,
+    "Cannot reset disposed signal",
+    () => {
+      current = undefined;
+      hasComputed = false;
+      recompute();
+
+      // Always notify on reset (value changed, error state changed, or recomputed)
+      scheduleNotification(() => onChange.emit());
+    }
+  );
+
+  const on = (listener: VoidFunction) => {
+    if (!current && Object.keys(deps).length > 0) {
+      get();
+    }
+    return onChange.on(listener);
+  };
+
+  // Pause/Resume/Paused for computed signals
+  const pause = () => {
+    isPaused = true;
+  };
+
+  const resume = () => {
+    if (!isPaused) return;
+    isPaused = false;
+    // Recompute with latest dependencies
+    recompute();
+    scheduleNotification(() => onChange.emit());
+  };
+
+  const paused = () => isPaused;
+
+  // Hydrate for computed signals - skip if already computed
+  const hydrate = (value: any) => {
+    if (hasComputed) {
+      // Already computed, skip hydration
+      return;
+    }
+    // Set value without computing
+    current = { value };
+    hasComputed = true;
+  };
+
+  const instance = Object.assign(get, {
+    [SIGNAL_TYPE]: true,
+    displayName: name,
+    get,
+    on,
+    dispose,
+    reset,
+    toJSON: get,
+    pause,
+    resume,
+    paused,
+    hydrate,
+  });
+
+  instanceRef = instance as unknown as ComputedSignal<any>;
+
+  if (tags && tags.length > 0) {
+    tags.forEach((tag) => (tag as any)._add(instanceRef!));
+  }
+
+  if (!lazy) {
+    try {
+      instance.get();
+    } catch {
+      // Ignore errors during eager computation
+    }
+  }
+
+  return instance as unknown as ComputedSignal<any>;
+}
+
+/**
+ * Type guard that checks whether a value is a Signal.
  *
- * Checks for the presence of signal-specific methods (`peek`, `on`) to
- * determine if a value is a signal (either read-only or mutable).
- *
- * @param value - Value to check
- * @returns True if the value is a signal
+ * @param value - The value to check.
+ * @param type - Optional signal type to check for ("mutable" or "computed")
+ * @returns true if `value` is a Signal of the specified type.
  *
  * @example
  * ```ts
  * const count = signal(0);
- * const obj = { value: 42 };
+ * const doubled = signal({ count }, ({ deps }) => deps.count * 2);
  *
  * if (isSignal(count)) {
  *   console.log(count()); // Safe to call as signal
  * }
  *
- * if (isSignal(obj)) {
- *   // This block won't execute
+ * if (isSignal(count, "mutable")) {
+ *   count.set(5); // Safe to call set
+ * }
+ *
+ * if (isSignal(doubled, "computed")) {
+ *   doubled.pause(); // Safe to call pause
  * }
  * ```
  */
-export function isSignal<T>(value: any): value is Signal<T> {
-  return typeof value === "function" && value[SIGNAL_TYPE] === true;
+export function isSignal<T = any>(value: unknown): value is Signal<T>;
+export function isSignal<T = any>(
+  value: unknown,
+  type: "mutable"
+): value is MutableSignal<T>;
+export function isSignal<T = any>(
+  value: unknown,
+  type: "computed"
+): value is ComputedSignal<T>;
+export function isSignal<T = any>(
+  value: unknown,
+  type?: "mutable" | "computed"
+): value is Signal<T> | MutableSignal<T> | ComputedSignal<T> {
+  const isAnySignal =
+    typeof value === "function" &&
+    value !== null &&
+    (value as any)[SIGNAL_TYPE] === true;
+
+  if (!isAnySignal) {
+    return false;
+  }
+
+  if (!type) {
+    return true;
+  }
+
+  // Check if it's a mutable signal (has set method)
+  if (type === "mutable") {
+    return "set" in (value as any);
+  }
+
+  // Check if it's a computed signal (has pause method, no set method)
+  if (type === "computed") {
+    return "pause" in (value as any) && !("set" in (value as any));
+  }
+
+  return false;
 }

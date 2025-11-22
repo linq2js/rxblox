@@ -37,7 +37,7 @@ export type Disposable = {
 };
 
 /**
- * Signal type combining Observable, Subscribable, Disposable with setters
+ * Base signal interface - common functionality for all signal types
  */
 export type Signal<TValue, TInit = TValue> = Subscribable &
   Disposable &
@@ -45,22 +45,6 @@ export type Signal<TValue, TInit = TValue> = Subscribable &
     readonly displayName?: string;
 
     get(): TValue | TInit;
-    /**
-     * set the signal value
-     * @param value - the new value or a function that receives the previous value and returns the new value
-     */
-    set(value: TValue | ((prev: TValue) => TValue | void)): void;
-
-    /**
-     * Returns a setter function that captures the current state.
-     * The returned function will only set the value if the state hasn't changed
-     * since the setter was created (checked via reference equality).
-     *
-     * @returns A function that takes a value and returns true if set succeeded, false if cancelled
-     */
-    setIfUnchanged(): (
-      value: TValue | ((prev: TValue) => TValue | void)
-    ) => boolean;
 
     /**
      * Reset the signal to its initial value
@@ -72,20 +56,112 @@ export type Signal<TValue, TInit = TValue> = Subscribable &
      * Useful for JSON.stringify() and debugging
      */
     toJSON(): TValue | TInit;
+
+    /**
+     * Hydrate the signal with a value (e.g., from SSR or persistence)
+     * For computed signals: skips hydration if signal has been computed
+     * For mutable signals: sets the value directly
+     */
+    hydrate(value: TValue): void;
   };
 
 /**
- * Map of signal names to signal instances
+ * Mutable signal - can be modified with set()
+ * Created when signal() is called without dependencies
  */
-export type SignalMap = Record<string, Signal<any>>;
+export type MutableSignal<TValue, TInit = TValue> = Signal<TValue, TInit> & {
+  /**
+   * Set signal value directly
+   * @param value - New value
+   */
+  set(value: TValue): void;
+
+  /**
+   * Update signal value via reducer function (returns new value)
+   * @param reducer - Function that receives current value and returns new value
+   */
+  set(reducer: (prev: TValue | TInit) => TValue): void;
+
+  /**
+   * Update signal value via updater function (mutates draft via immer, returns void)
+   * @param updater - Function that receives draft and mutates it
+   */
+  set(updater: (draft: TValue | TInit) => void): void;
+
+  /**
+   * Returns a setter function that captures the current state.
+   * The returned function will only set the value if the state hasn't changed
+   * since the setter was created (checked via reference equality).
+   *
+   * @returns A function that takes a value and returns true if set succeeded, false if cancelled
+   */
+  setIfUnchanged(): (
+    value: TValue | ((prev: TValue) => TValue | void)
+  ) => boolean;
+};
 
 /**
- * Context provided to signal computation functions
+ * Computed signal - read-only, derived from dependencies
+ * Created when signal() is called with dependencies
  */
-export type SignalContext<TDependencies extends SignalMap = {}> = {
-  abortSignal: AbortSignal;
-  deps: ResolveValue<TDependencies, "value">;
+export type ComputedSignal<TValue, TInit = TValue> = Signal<TValue, TInit> & {
+  /**
+   * Pause the signal - stops recomputations when dependencies change
+   * The signal will not update until resume() is called
+   */
+  pause(): void;
+
+  /**
+   * Resume the signal - enables recomputations
+   * Recomputes immediately with current dependency values
+   */
+  resume(): void;
+
+  /**
+   * Check if the signal is currently paused
+   */
+  paused(): boolean;
 };
+
+/**
+ * Map of signal names to signal instances
+ * Accepts both MutableSignal and ComputedSignal
+ */
+export type SignalMap = Record<
+  string,
+  Signal<any> | MutableSignal<any> | ComputedSignal<any>
+>;
+
+/**
+ * Base context for signal computation functions
+ */
+export type SignalContext = {
+  /**
+   * AbortSignal that gets triggered when:
+   * - Signal is disposed
+   * - Signal recomputes (previous computation aborted)
+   */
+  abortSignal: AbortSignal;
+
+  /**
+   * Register a cleanup function that runs when:
+   * - Signal recomputes (cleanup previous side effects)
+   * - Signal is disposed
+   */
+  cleanup: (fn: VoidFunction) => void;
+};
+
+/**
+ * Context for computed signal computation functions (with dependencies)
+ */
+export type ComputedSignalContext<TDependencies extends SignalMap = {}> =
+  SignalContext & {
+    /**
+     * Proxy object that provides access to dependency signal values.
+     * Automatically tracks which dependencies are accessed.
+     */
+    deps: ResolveValue<TDependencies, "value">;
+  };
 
 /**
  * Options for signal creation

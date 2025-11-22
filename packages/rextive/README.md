@@ -394,7 +394,8 @@ import { signal, useScope } from "rextive";
 type TodoQueryVariables = { userId: number; status?: string };
 
 function createTodoListQuery() {
-  const payload = signal<TodoQueryVariables | null>(null);
+  // Signal with no initial value - get() returns T | undefined, but set() requires T
+  const payload = signal<TodoQueryVariables>();
 
   const result = signal({ payload }, async ({ deps, abortSignal }) => {
     if (!deps.payload) {

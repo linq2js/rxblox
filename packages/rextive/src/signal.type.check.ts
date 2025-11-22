@@ -2,7 +2,12 @@
 // These are compile-time checks – they should not be imported at runtime.
 
 import { signal } from "./signal";
-import type { Signal, SignalContext } from "./types";
+import type {
+  Signal,
+  MutableSignal,
+  ComputedSignal,
+  SignalContext,
+} from "./types";
 
 // Utility to assert inferred types at compile time
 function expectType<T>(_value: T): void {
@@ -10,12 +15,30 @@ function expectType<T>(_value: T): void {
 }
 
 // ---------------------------------------------------------------------------
-// Overload 1: signal() - no arguments
+// Overload 1: signal() - no arguments, no initial value
+// Special behavior: get() returns T | undefined, but set() requires T
 // ---------------------------------------------------------------------------
 
 const noArgSignal = signal();
-expectType<Signal<undefined | unknown>>(noArgSignal);
-expectType<undefined | unknown>(noArgSignal());
+expectType<MutableSignal<unknown, undefined>>(noArgSignal);
+expectType<unknown | undefined>(noArgSignal());
+
+// Example: signal with no initial value for typed data
+interface TodoPayload {
+  id: number;
+  title: string;
+}
+
+const payload = signal<TodoPayload>();
+expectType<MutableSignal<TodoPayload, undefined>>(payload);
+
+// get() returns TodoPayload | undefined
+expectType<TodoPayload | undefined>(payload());
+
+// set() requires TodoPayload (not TodoPayload | undefined)
+payload.set({ id: 1, title: "Buy milk" });
+// @ts-expect-error - cannot set undefined
+payload.set(undefined);
 
 // ---------------------------------------------------------------------------
 // Overload 2: signal(value) - with initial value
@@ -23,25 +46,25 @@ expectType<undefined | unknown>(noArgSignal());
 
 // Primitive values
 const numberSignal = signal(42);
-expectType<Signal<number>>(numberSignal);
+expectType<MutableSignal<number>>(numberSignal);
 expectType<number>(numberSignal());
 
 const stringSignal = signal("hello");
-expectType<Signal<string>>(stringSignal);
+expectType<MutableSignal<string>>(stringSignal);
 expectType<string>(stringSignal());
 
 const booleanSignal = signal(true);
-expectType<Signal<boolean>>(booleanSignal);
+expectType<MutableSignal<boolean>>(booleanSignal);
 expectType<boolean>(booleanSignal());
 
 // Object values
 const objectSignal = signal({ name: "Alice", age: 30 });
-expectType<Signal<{ name: string; age: number }>>(objectSignal);
+expectType<MutableSignal<{ name: string; age: number }>>(objectSignal);
 expectType<{ name: string; age: number }>(objectSignal());
 
 // Array values
 const arraySignal = signal([1, 2, 3]);
-expectType<Signal<number[]>>(arraySignal);
+expectType<MutableSignal<number[]>>(arraySignal);
 expectType<number[]>(arraySignal());
 
 // ---------------------------------------------------------------------------
@@ -50,9 +73,11 @@ expectType<number[]>(arraySignal());
 
 const lazySignal = signal((context: SignalContext) => {
   expectType<SignalContext>(context);
+  expectType<AbortSignal>(context.abortSignal);
+  context.cleanup(() => {});
   return 42;
 });
-expectType<Signal<number>>(lazySignal);
+expectType<MutableSignal<number>>(lazySignal);
 expectType<number>(lazySignal());
 
 // Lazy with complex return type
@@ -61,7 +86,7 @@ const lazyObjectSignal = signal(() => ({
   posts: [1, 2, 3],
 }));
 expectType<
-  Signal<{
+  MutableSignal<{
     user: { id: number; name: string };
     posts: number[];
   }>
@@ -74,12 +99,12 @@ expectType<
 const signalWithEquals = signal(42, {
   equals: (a, b) => a === b,
 });
-expectType<Signal<number>>(signalWithEquals);
+expectType<MutableSignal<number>>(signalWithEquals);
 
 const signalWithName = signal("test", {
   name: "testSignal",
 });
-expectType<Signal<string>>(signalWithName);
+expectType<MutableSignal<string>>(signalWithName);
 
 const signalWithFallback = signal(0, {
   fallback: (error) => {
@@ -87,7 +112,7 @@ const signalWithFallback = signal(0, {
     return -1;
   },
 });
-expectType<Signal<number>>(signalWithFallback);
+expectType<MutableSignal<number>>(signalWithFallback);
 
 const signalWithCallbacks = signal(0, {
   onChange: (value) => {
@@ -97,7 +122,7 @@ const signalWithCallbacks = signal(0, {
     expectType<unknown>(error);
   },
 });
-expectType<Signal<number>>(signalWithCallbacks);
+expectType<MutableSignal<number>>(signalWithCallbacks);
 
 // ---------------------------------------------------------------------------
 // Overload 3: signal(deps, compute) - with dependencies
@@ -105,10 +130,13 @@ expectType<Signal<number>>(signalWithCallbacks);
 
 const count = signal(0);
 const doubled = signal({ count }, (ctx) => {
-  expectType<SignalContext<{ count: Signal<number> }>>(ctx);
+  expectType<ComputedSignalContext<{ count: Signal<number> }>>(ctx);
+  expectType<number>(ctx.deps.count);
+  expectType<AbortSignal>(ctx.abortSignal);
+  ctx.cleanup(() => {});
   return ctx.deps.count * 2;
 });
-expectType<Signal<number>>(doubled);
+expectType<ComputedSignal<number>>(doubled);
 expectType<number>(doubled());
 
 // Multiple dependencies
@@ -117,7 +145,7 @@ const lastName = signal("Doe");
 const fullName = signal({ firstName, lastName }, (ctx) => {
   return `${ctx.deps.firstName} ${ctx.deps.lastName}`;
 });
-expectType<Signal<string>>(fullName);
+expectType<ComputedSignal<string>>(fullName);
 expectType<string>(fullName());
 
 // Dependencies with different types
@@ -129,7 +157,7 @@ const summary = signal({ user, posts }, (ctx) => {
     postCount: ctx.deps.posts.length,
   };
 });
-expectType<Signal<{ userName: string; postCount: number }>>(summary);
+expectType<ComputedSignal<{ userName: string; postCount: number }>>(summary);
 expectType<{ userName: string; postCount: number }>(summary());
 
 // ---------------------------------------------------------------------------
@@ -147,7 +175,7 @@ const computedWithOptions = signal({ count }, (ctx) => ctx.deps.count * 2, {
     expectType<number>(value);
   },
 });
-expectType<Signal<number>>(computedWithOptions);
+expectType<ComputedSignal<number>>(computedWithOptions);
 
 // ---------------------------------------------------------------------------
 // Signal methods type checking
@@ -239,9 +267,9 @@ expectType<Signal<Promise<number>>>(asyncData);
 const a = signal(1);
 const b = signal({ a }, (ctx) => ctx.deps.a * 2);
 const c = signal({ b }, (ctx) => ctx.deps.b * 2);
-expectType<Signal<number>>(a);
-expectType<Signal<number>>(b);
-expectType<Signal<number>>(c);
+expectType<MutableSignal<number>>(a);
+expectType<ComputedSignal<number>>(b);
+expectType<ComputedSignal<number>>(c);
 expectType<number>(c());
 
 // ---------------------------------------------------------------------------
@@ -250,21 +278,21 @@ expectType<number>(c());
 
 // Lazy by default (no option)
 const lazyDefault = signal(() => 42);
-expectType<Signal<number>>(lazyDefault);
+expectType<MutableSignal<number>>(lazyDefault);
 
 // Explicit lazy: true
 const lazyTrue = signal(() => 42, { lazy: true });
-expectType<Signal<number>>(lazyTrue);
+expectType<MutableSignal<number>>(lazyTrue);
 
 // Eager evaluation with lazy: false
 const eager = signal(() => 42, { lazy: false });
-expectType<Signal<number>>(eager);
+expectType<MutableSignal<number>>(eager);
 
 // Lazy option with dependencies
 const eagerDerived = signal({ count }, (ctx) => ctx.deps.count * 2, {
   lazy: false,
 });
-expectType<Signal<number>>(eagerDerived);
+expectType<ComputedSignal<number>>(eagerDerived);
 
 // Lazy option with other options
 const eagerWithOptions = signal(() => 42, {
@@ -272,7 +300,7 @@ const eagerWithOptions = signal(() => 42, {
   name: "mySignal",
   equals: (a, b) => a === b,
 });
-expectType<Signal<number>>(eagerWithOptions);
+expectType<MutableSignal<number>>(eagerWithOptions);
 
 // ---------------------------------------------------------------------------
 // toJSON method

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { tag } from "./tag";
 import { signal } from "./signal";
+import { Signal } from "./types";
 
 describe("tag", () => {
   describe("Basic tag operations", () => {
@@ -119,7 +120,7 @@ describe("tag", () => {
       const b = signal(2, { tags: [myTag] });
       const c = signal(3, { tags: [myTag] });
 
-      const visited: (typeof a)[] = [];
+      const visited: Signal<number>[] = [];
       myTag.forEach((sig) => visited.push(sig));
 
       expect(visited).toEqual([a, b, c]);
@@ -142,7 +143,9 @@ describe("tag", () => {
       const values: number[] = [];
       myTag.forEach((sig) => {
         values.push(sig());
-        sig.set((v) => v * 2);
+        if (signal.is(sig, "mutable")) {
+          sig.set((v) => v * 2);
+        }
       });
 
       expect(values).toEqual([1, 2]);

@@ -166,7 +166,7 @@ export namespace tag {
    * @param tags - Array of tags
    * @returns Array of signals from all tags
    */
-  export function signals<T extends readonly Tag<any>[]>(
+  export function signals<const T extends readonly Tag<any>[]>(
     tags: T
   ): Signal<UnionOfTagTypes<T>>[] {
     const result: Signal<UnionOfTagTypes<T>>[] = [];
