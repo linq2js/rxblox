@@ -270,4 +270,50 @@ describe("emitter", () => {
       consoleSpy.mockRestore();
     });
   });
+
+  describe("array listeners", () => {
+    it("should add multiple listeners at once using array", () => {
+      const eventEmitter = emitter<string>();
+      const listener1 = vi.fn();
+      const listener2 = vi.fn();
+      const listener3 = vi.fn();
+
+      eventEmitter.on([listener1, listener2, listener3]);
+      eventEmitter.emit("test");
+
+      expect(listener1).toHaveBeenCalledWith("test");
+      expect(listener2).toHaveBeenCalledWith("test");
+      expect(listener3).toHaveBeenCalledWith("test");
+    });
+
+    it("should remove all array listeners when unsubscribe is called", () => {
+      const eventEmitter = emitter<string>();
+      const listener1 = vi.fn();
+      const listener2 = vi.fn();
+      const listener3 = vi.fn();
+
+      const unsubscribe = eventEmitter.on([listener1, listener2, listener3]);
+      eventEmitter.emit("first");
+
+      expect(listener1).toHaveBeenCalledTimes(1);
+      expect(listener2).toHaveBeenCalledTimes(1);
+      expect(listener3).toHaveBeenCalledTimes(1);
+
+      unsubscribe();
+      eventEmitter.emit("second");
+
+      // Should not be called after unsubscribe
+      expect(listener1).toHaveBeenCalledTimes(1);
+      expect(listener2).toHaveBeenCalledTimes(1);
+      expect(listener3).toHaveBeenCalledTimes(1);
+    });
+
+    it("should handle empty array", () => {
+      const eventEmitter = emitter<string>();
+      const unsubscribe = eventEmitter.on([]);
+      
+      expect(() => eventEmitter.emit("test")).not.toThrow();
+      expect(() => unsubscribe()).not.toThrow();
+    });
+  });
 });

@@ -57,6 +57,22 @@ export default defineConfig({
     globals: true,
     environment: "jsdom",
     setupFiles: "./src/test/setup.ts",
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "json", "html"],
+      exclude: [
+        "**/node_modules/**",
+        "**/dist/**",
+        "**/*.test.ts",
+        "**/*.test.tsx",
+        "**/*.type.check.ts",
+        "**/*.type.check.tsx",
+        "**/test/**",
+        "**/examples/**",
+        "**/src/index.ts",
+        "**/src/react/index.ts",
+      ],
+    },
     onConsoleLog(log, type) {
       // Suppress React warning about functions not being valid children in tests
       if (

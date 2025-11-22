@@ -150,6 +150,80 @@ describe("useRerender", () => {
     });
   });
 
+  describe("with microtask debounce", () => {
+    it("should debounce rerenders using microtask queue", async () => {
+      let renderCount = 0;
+      const TestComponent = () => {
+        const rerender = useRerender({ debounce: "microtask" });
+        renderCount++;
+        return (
+          <div>
+            <button onClick={() => rerender()}>Rerender</button>
+            <span data-testid="count">{renderCount}</span>
+          </div>
+        );
+      };
+
+      const { getByText, getByTestId } = render(<TestComponent />);
+      expect(getByTestId("count").textContent).toBe("1");
+
+      // Multiple quick calls
+      act(() => {
+        getByText("Rerender").click();
+        getByText("Rerender").click();
+        getByText("Rerender").click();
+      });
+
+      // Should batch in microtask
+      await waitFor(() => {
+        expect(parseInt(getByTestId("count").textContent || "0")).toBeGreaterThan(1);
+      });
+    });
+
+    it("should cancel microtask-debounced rerender as no-op", async () => {
+      let renderCount = 0;
+      const TestComponent = () => {
+        const rerender = useRerender({ debounce: "microtask" });
+        renderCount++;
+        return (
+          <div>
+            <button onClick={() => rerender()}>Rerender</button>
+            <button onClick={() => rerender.cancel()}>Cancel</button>
+            <span data-testid="count">{renderCount}</span>
+          </div>
+        );
+      };
+
+      const { getByText, getByTestId } = render(<TestComponent />);
+      
+      // Cancel should work without error (no-op for microtask)
+      expect(() => {
+        act(() => {
+          getByText("Cancel").click();
+        });
+      }).not.toThrow();
+    });
+
+    it("should handle flush as no-op for microtask", () => {
+      const TestComponent = () => {
+        const rerender = useRerender({ debounce: "microtask" });
+        return (
+          <div>
+            <button onClick={() => rerender.flush()}>Flush</button>
+          </div>
+        );
+      };
+
+      const { getByText } = render(<TestComponent />);
+      
+      expect(() => {
+        act(() => {
+          getByText("Flush").click();
+        });
+      }).not.toThrow();
+    });
+  });
+
   describe("with debounce", () => {
     beforeEach(() => {
       vi.useFakeTimers();

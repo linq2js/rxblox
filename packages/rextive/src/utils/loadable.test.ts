@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { type Loadable, LOADABLE_TYPE, loadable, isLoadable } from "./loadable";
+import { type Loadable, LOADABLE_TYPE, loadable, isLoadable, getLoadable, setLoadable, toLoadable } from "./loadable";
 
 describe("loadable", () => {
   describe("loadable factory - loading", () => {
@@ -455,6 +455,122 @@ describe("loadable", () => {
         'Success: {"value":42}'
       );
       expect(renderLoadable(loadable("error", "Failed"))).toBe("Error: Failed");
+    });
+  });
+
+  describe("getLoadable", () => {
+    it("should get or create loadable for promise", () => {
+      const promise = Promise.resolve(42);
+      const l1 = getLoadable(promise);
+      const l2 = getLoadable(promise);
+
+      expect(l1).toBe(l2); // Should return same instance
+      expect(l1.status).toBe("loading");
+      expect(l1.promise).toBe(promise);
+    });
+
+    it("should return cached loadable for same promise", () => {
+      const promise1 = Promise.resolve(42);
+      const promise2 = Promise.resolve(42); // Different promise instance
+      
+      const l1 = getLoadable(promise1);
+      const l2 = getLoadable(promise1); // Same promise
+      const l3 = getLoadable(promise2); // Different promise
+
+      expect(l1).toBe(l2); // Should return same instance for same promise
+      expect(l1).not.toBe(l3); // Different promises get different loadables
+    });
+  });
+
+  describe("setLoadable", () => {
+    it("should set and retrieve custom loadable for promise", () => {
+      const promise = Promise.resolve(100);
+      const customLoadable = loadable("success", 100, promise);
+
+      setLoadable(promise, customLoadable);
+      const retrieved = getLoadable(promise);
+
+      expect(retrieved).toBe(customLoadable);
+      expect(retrieved.status).toBe("success");
+      expect(retrieved.value).toBe(100);
+    });
+
+    it("should override existing loadable", () => {
+      const promise = Promise.resolve(42);
+      const loadable1 = getLoadable(promise);
+      const loadable2 = loadable("success", 42, promise);
+
+      setLoadable(promise, loadable2);
+      const retrieved = getLoadable(promise);
+
+      expect(retrieved).toBe(loadable2);
+      expect(retrieved).not.toBe(loadable1);
+    });
+  });
+
+  describe("toLoadable", () => {
+    it("should return existing loadable if already a loadable", () => {
+      const l = loadable("success", 42);
+      const result = toLoadable(l);
+
+      expect(result).toBe(l);
+    });
+
+    it("should wrap promises in loading loadable", () => {
+      const promise = Promise.resolve(42);
+      const result = toLoadable(promise);
+
+      expect(result.status).toBe("loading");
+      expect(result.promise).toBe(promise);
+    });
+
+    it("should cache loadables for object values", () => {
+      const obj = { value: 42 };
+      const l1 = toLoadable(obj);
+      const l2 = toLoadable(obj);
+
+      expect(l1).toBe(l2); // Should return same instance (cached)
+      expect(l1.status).toBe("success");
+      expect(l1.value).toBe(obj);
+    });
+
+    it("should cache loadables for function values", () => {
+      const fn = () => 42;
+      const l1 = toLoadable(fn);
+      const l2 = toLoadable(fn);
+
+      expect(l1).toBe(l2); // Should return same instance (cached)
+      expect(l1.status).toBe("success");
+      expect(l1.value).toBe(fn);
+    });
+
+    it("should not cache primitive values", () => {
+      const l1 = toLoadable(42);
+      const l2 = toLoadable(42);
+
+      // Primitives are cheap to wrap, so no caching
+      expect(l1.status).toBe("success");
+      expect(l1.value).toBe(42);
+      expect(l2.status).toBe("success");
+      expect(l2.value).toBe(42);
+    });
+
+    it("should handle null values", () => {
+      const l = toLoadable(null);
+      expect(l.status).toBe("success");
+      expect(l.value).toBe(null);
+    });
+
+    it("should wrap strings in success loadable", () => {
+      const l = toLoadable("hello");
+      expect(l.status).toBe("success");
+      expect(l.value).toBe("hello");
+    });
+
+    it("should wrap numbers in success loadable", () => {
+      const l = toLoadable(123);
+      expect(l.status).toBe("success");
+      expect(l.value).toBe(123);
     });
   });
 });

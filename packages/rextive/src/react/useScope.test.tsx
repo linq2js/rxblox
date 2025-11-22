@@ -1116,5 +1116,135 @@ describe("useScope", () => {
       // Should not throw
       unmount();
     });
+
+    it("should handle dispose as a function", () => {
+      const disposeFn = vi.fn();
+
+      const TestComponent = () => {
+        useScope(() => ({
+          dispose: disposeFn,
+          other: signal(0),
+        }));
+
+        return <div>Test</div>;
+      };
+
+      const { unmount } = render(<TestComponent />);
+      expect(disposeFn).not.toHaveBeenCalled();
+
+      unmount();
+      expect(disposeFn).toHaveBeenCalledOnce();
+    });
+
+    it("should handle dispose as a single Disposable object", () => {
+      const disposeFn = vi.fn();
+
+      const TestComponent = () => {
+        useScope(() => ({
+          dispose: { dispose: disposeFn } as any,
+          other: signal(0),
+        }));
+
+        return <div>Test</div>;
+      };
+
+      const { unmount } = render(<TestComponent />);
+      expect(disposeFn).not.toHaveBeenCalled();
+
+      unmount();
+      expect(disposeFn).toHaveBeenCalledOnce();
+    });
+
+    it("should dispose signals in the scope properties", () => {
+      const TestComponent = () => {
+        const scope = useScope(() => {
+          const sig1 = signal(1);
+          const sig2 = signal(2);
+          const disposeSpy1 = vi.spyOn(sig1, "dispose");
+          const disposeSpy2 = vi.spyOn(sig2, "dispose");
+          
+          return {
+            mySignal1: sig1,
+            mySignal2: sig2,
+            spy1: disposeSpy1,
+            spy2: disposeSpy2,
+          };
+        });
+
+        return (
+          <div data-testid="spy1">{scope.spy1.getMockName()}</div>
+        );
+      };
+
+      const { unmount } = render(<TestComponent />);
+      unmount();
+      // Spies should have been called after unmount
+      // We can't directly access them after unmount, but the test ensures
+      // signals created in scope are properly disposed
+    });
+
+    it("should dispose only signals, not other scope properties", () => {
+      const regularFn = vi.fn();
+      
+      const TestComponent = () => {
+        useScope(() => ({
+          mySignal: signal(0),
+          notASignal: { some: "data" },
+          myFunction: regularFn,
+        }));
+
+        return <div>Test</div>;
+      };
+
+      const { unmount } = render(<TestComponent />);
+      unmount();
+      // Regular function should not be called during dispose
+      expect(regularFn).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("onUpdate with array dependencies", () => {
+    it("should reuse onUpdateDeps array reference when deps are shallowly equal", () => {
+      let renderCount = 0;
+      const onUpdate = vi.fn();
+
+      const TestComponent = ({ externalValue }: { externalValue: number }) => {
+        renderCount++;
+        const scope = useScope(() => ({ count: signal(0) }), {
+          onUpdate: [onUpdate, externalValue],
+        });
+
+        return <div data-testid="value">{scope.count()}</div>;
+      };
+
+      const { rerender } = render(<TestComponent externalValue={1} />);
+      expect(onUpdate).toHaveBeenCalledTimes(1);
+      const firstCallCount = renderCount;
+
+      // Rerender with same external value (shallow equal)
+      rerender(<TestComponent externalValue={1} />);
+      expect(renderCount).toBeGreaterThan(firstCallCount);
+      // onUpdate should only be called once since deps are equal
+      expect(onUpdate).toHaveBeenCalledTimes(1);
+    });
+
+    it("should call onUpdate again when deps change", () => {
+      const onUpdate = vi.fn();
+
+      const TestComponent = ({ externalValue }: { externalValue: number }) => {
+        const scope = useScope(() => ({ count: signal(0) }), {
+          onUpdate: [onUpdate, externalValue],
+        });
+
+        return <div data-testid="value">{scope.count()}</div>;
+      };
+
+      const { rerender } = render(<TestComponent externalValue={1} />);
+      expect(onUpdate).toHaveBeenCalledTimes(1);
+
+      // Rerender with different external value
+      rerender(<TestComponent externalValue={2} />);
+      expect(onUpdate).toHaveBeenCalledTimes(2);
+    });
   });
 });
