@@ -205,7 +205,10 @@ const staticLoadableCache = new WeakMap<object, Loadable<unknown>>();
  * setLoadable(promise, l);
  * ```
  */
-export function setLoadable<T>(promise: PromiseLike<T>, l: Loadable<T>) {
+export function setLoadable<T, L extends Loadable<T>>(
+  promise: PromiseLike<T>,
+  l: L
+) {
   promiseCache.set(promise, l);
   return l;
 }
@@ -245,10 +248,7 @@ export function getLoadable<T>(promise: PromiseLike<T>): Loadable<T> {
       setLoadable(promise, loadable("success", data, promise as Promise<T>));
     },
     (error) => {
-      setLoadable(
-        promise,
-        loadable("error", error, promise as Promise<unknown>)
-      );
+      setLoadable(promise, loadable("error", error, promise as Promise<T>));
     }
   );
 
