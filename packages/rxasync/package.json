@@ -1,23 +1,15 @@
 {
-  "name": "rextive",
-  "version": "2.2.0",
-  "description": "A reactive state management library for React with explicit dependencies",
+  "name": "rxasync",
+  "version": "0.1.0",
+  "description": "Reactive async components for React with fine-grained reactivity and composable logic",
   "type": "module",
-  "main": "./dist/rextive.js",
-  "module": "./dist/rextive.js",
+  "main": "./dist/rxasync.js",
+  "module": "./dist/rxasync.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "default": "./dist/rextive.js"
-    },
-    "./react": {
-      "types": "./dist/react/index.d.ts",
-      "default": "./dist/react/index.js"
-    },
-    "./immer": {
-      "types": "./dist/immer/index.d.ts",
-      "default": "./dist/immer/index.js"
+      "default": "./dist/rxasync.js"
     }
   },
   "files": [
@@ -44,31 +36,30 @@
     "pu:ma": "npm run version:major && npm publish"
   },
   "keywords": [
-    "state",
-    "management",
-    "reactive",
     "react",
+    "async",
+    "reactive",
+    "components",
     "signals",
-    "explicit",
-    "dependencies"
+    "fine-grained",
+    "reactivity",
+    "composable",
+    "hooks",
+    "state-management"
   ],
   "author": "linq2js",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/linq2js/rxblox.git",
-    "directory": "packages/rextive"
+    "directory": "packages/rxasync"
   },
   "peerDependencies": {
-    "react": "^18.0.0",
-    "immer": "^9.0.0 || ^10.0.0"
+    "react": "^18.0.0"
   },
   "peerDependenciesMeta": {
     "react": {
       "optional": false
-    },
-    "immer": {
-      "optional": true
     }
   },
   "devDependencies": {
@@ -79,18 +70,14 @@
     "@vitejs/plugin-react": "^4.2.1",
     "@vitest/coverage-v8": "^1.1.0",
     "@vitest/ui": "^1.1.0",
-    "immer": "^10.2.0",
     "jsdom": "^23.0.1",
     "react": "^18.2.0",
+    "react-dom": "^18.2.0",
     "terser": "^5.36.0",
     "typescript": "^5.3.3",
     "vite": "^5.0.8",
     "vite-plugin-dts": "^3.6.4",
-    "vitest": "^1.1.0",
-    "react-error-boundary": "6.0.0",
-    "@types/lodash": "^4.17.20"
-  },
-  "dependencies": {
-    "lodash": "^4.17.21"
+    "vitest": "^1.1.0"
   }
 }
+

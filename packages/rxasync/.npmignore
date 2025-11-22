@@ -1,0 +1,15 @@
+src
+examples
+docs
+coverage
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+*.type.check.ts
+*.type.check.tsx
+tsconfig.json
+tsconfig.node.json
+vite.config.ts
+.gitignore
+
