@@ -74,6 +74,8 @@ export type UseLifecycleOptions = {
   dispose?: VoidFunction;
 };
 
+const EMPTY_OPTIONS: UseLifecycleOptions = {};
+
 /**
  * Hook for managing component lifecycle with fine-grained control
  *
@@ -112,22 +114,37 @@ export type UseLifecycleOptions = {
  * });
  * ```
  */
-export function useLifecycle(options: UseLifecycleOptions = {}) {
+export function useLifecycle(options: UseLifecycleOptions) {
   // Create stable ref object using useState (created once, never recreated)
   // Run init callback during initialization (before first render)
   const [ref] = useState(() => {
     let currentOptions = options;
     options.init?.();
-    let phase: "render" | "cleanup" | "mount" = "render";
+    let phase: "render" | "cleanup" | "mount" | "disposed" = "render";
+    let shouldDisposeIfThereIsErrorInRender = false;
+
+    const dispose = () => {
+      if (phase === "disposed") return;
+      phase = "disposed";
+      currentOptions.dispose?.();
+      currentOptions = EMPTY_OPTIONS as UseLifecycleOptions;
+    };
 
     return {
       onRender(nextOptions: UseLifecycleOptions) {
         currentOptions = nextOptions;
+        shouldDisposeIfThereIsErrorInRender = true;
         phase = "render";
-        nextOptions.render?.();
+        Promise.resolve().then(() => {
+          if (shouldDisposeIfThereIsErrorInRender) {
+            dispose();
+          }
+        });
+        currentOptions.render?.();
       },
       onMount() {
         phase = "mount";
+        shouldDisposeIfThereIsErrorInRender = false;
         currentOptions.mount?.();
 
         return () => {
@@ -161,7 +178,7 @@ export function useLifecycle(options: UseLifecycleOptions = {}) {
                 // Verify still unmounted (phase wasn't reset to "mount")
                 if (phase === "cleanup") {
                   try {
-                    currentOptions.dispose?.();
+                    dispose();
                   } catch (error) {
                     console.error("Error in dispose callback:", error);
                   }
@@ -169,7 +186,7 @@ export function useLifecycle(options: UseLifecycleOptions = {}) {
               });
             } else {
               // Production: call dispose synchronously
-              currentOptions.dispose();
+              dispose();
             }
           }
         };

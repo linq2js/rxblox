@@ -193,7 +193,7 @@ describe("useLifecycle", () => {
       expect(dispose).not.toHaveBeenCalled();
 
       unmount();
-      
+
       // dispose is deferred to microtask
       await waitFor(() => {
         expect(dispose).toHaveBeenCalledTimes(1);
@@ -220,7 +220,9 @@ describe("useLifecycle", () => {
     });
 
     it("should handle errors in dispose without crashing", async () => {
-      const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
       const dispose = vi.fn(() => {
         throw new Error("Test error");
       });
@@ -268,7 +270,13 @@ describe("useLifecycle", () => {
       unmount();
 
       await waitFor(() => {
-        expect(callOrder).toEqual(["init", "render", "mount", "cleanup", "dispose"]);
+        expect(callOrder).toEqual([
+          "init",
+          "render",
+          "mount",
+          "cleanup",
+          "dispose",
+        ]);
       });
     });
   });
@@ -339,7 +347,7 @@ describe("useLifecycle", () => {
 
     it("should work with empty options", () => {
       const TestComponent = () => {
-        useLifecycle();
+        useLifecycle({});
         return <div>test</div>;
       };
 
@@ -416,7 +424,9 @@ describe("useLifecycle", () => {
 
   describe("error handling", () => {
     it("should handle errors in dispose callback gracefully", async () => {
-      const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
       const dispose = vi.fn(() => {
         throw new Error("Dispose error");
       });
@@ -440,4 +450,3 @@ describe("useLifecycle", () => {
     });
   });
 });
-
