@@ -90,21 +90,25 @@ const EMPTY_OPTIONS: UseLifecycleOptions = {};
  * only `init` will have run. Use Error Boundaries for proper error handling.
  *
  * @param options - Lifecycle callbacks
+ * @returns `getPhase` function - Returns current lifecycle phase dynamically
  *
  * @example Basic usage
  * ```tsx
- * useLifecycle({
+ * const getPhase = useLifecycle({
  *   init: () => console.log('Initializing...'),
  *   mount: () => console.log('Mounted!'),
  *   render: () => console.log('Rendering...'),
  *   cleanup: () => subscription.unsubscribe(),
  *   dispose: () => analytics.track('closed'),
  * });
+ *
+ * // Check current phase dynamically
+ * console.log(getPhase()); // "render" | "mount" | "cleanup" | "disposed"
  * ```
  *
- * @example Service pattern
+ * @example Service pattern with phase check
  * ```tsx
- * useLifecycle({
+ * const getPhase = useLifecycle({
  *   mount: () => {
  *     const sub = service.subscribe(data => setState(data));
  *   },
@@ -112,6 +116,29 @@ const EMPTY_OPTIONS: UseLifecycleOptions = {};
  *     service.cleanup();
  *   }
  * });
+ *
+ * // Use phase to guard async operations
+ * const fetchData = async () => {
+ *   const data = await api.fetch();
+ *   if (getPhase() !== "disposed" && getPhase() !== "cleanup") {
+ *     setState(data); // Safe: component still mounted
+ *   }
+ * };
+ * ```
+ *
+ * @example Conditional logic based on phase
+ * ```tsx
+ * const getPhase = useLifecycle({
+ *   mount: () => startAnimation(),
+ *   dispose: () => stopAnimation(),
+ * });
+ *
+ * const handleClick = () => {
+ *   if (getPhase() === "mount") {
+ *     // Only process clicks when fully mounted
+ *     processClick();
+ *   }
+ * };
  * ```
  */
 export function useLifecycle(options: UseLifecycleOptions) {
@@ -131,6 +158,15 @@ export function useLifecycle(options: UseLifecycleOptions) {
     };
 
     return {
+      /**
+       * Returns the current lifecycle phase
+       * Allows calling code to dynamically check component state
+       * 
+       * @returns Current phase: "render" | "mount" | "cleanup" | "disposed"
+       */
+      getPhase() {
+        return phase;
+      },
       onRender(nextOptions: UseLifecycleOptions) {
         currentOptions = nextOptions;
         shouldDisposeIfThereIsErrorInRender = true;
@@ -194,9 +230,23 @@ export function useLifecycle(options: UseLifecycleOptions) {
     };
   });
 
+  // Update options on every render and call render callback
   ref.onRender(options);
 
+  // Setup mount/cleanup lifecycle
   useLayoutEffect(() => {
     return ref.onMount();
   }, []); // Empty deps: mount once, cleanup on unmount
+
+  /**
+   * Return getPhase function for dynamic phase inspection
+   * 
+   * This allows calling code to check component state at any time:
+   * - Guard async operations (prevent setState after unmount)
+   * - Conditional logic based on lifecycle phase
+   * - Debugging and logging
+   * 
+   * @returns Function that returns current phase when called
+   */
+  return ref.getPhase;
 }
